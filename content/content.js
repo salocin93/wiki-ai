@@ -531,7 +531,7 @@
 
   const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
   const esc = (v) => W.markdown.esc(String(v ?? ''));
-  const normQ = (q) => q.toLowerCase().replace(/\s+/g, ' ').trim();
+  const normQ = (q) => W.markdown.plain(q).toLowerCase().replace(/\s+/g, ' ').trim();
   const GRAPH_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>`;
 
   // ---------- Views: Chat, Topic, Map ----------
@@ -605,7 +605,7 @@
     for (const c of byRecent) {
       c.messages.forEach((m, i) => {
         if (m.role !== 'assistant' || !m.followups?.length) return;
-        const items = m.followups.filter((q) => !asked.has(normQ(q)) && !seen.has(normQ(q)));
+        const items = m.followups.map((q) => W.markdown.plain(q)).filter((q) => !asked.has(normQ(q)) && !seen.has(normQ(q)));
         items.forEach((q) => seen.add(normQ(q)));
         if (items.length) groups.push({ convId: c.id, from: c.messages[i - 1]?.content || c.title, items });
       });
@@ -996,6 +996,7 @@
     const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
     const followups = !m.pending && m.followups?.length
       ? `<div class="followups"><div class="fu-label">Ask next</div>${m.followups
+          .map((q) => W.markdown.plain(q))
           .map((q) =>
             askedHere.has(normQ(q))
               ? `<div class="followup asked"><span aria-hidden="true">✓</span> ${esc(q)}</div>`

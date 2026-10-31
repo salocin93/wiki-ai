@@ -73,5 +73,13 @@
     return [...seen];
   }
 
-  W.markdown = { render, citedNumbers, esc };
+  // For text shown plainly (suggested questions saved before they were cleaned up).
+  const plain = (t) =>
+    t
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/(^|\W)_([^_]+)_(?=\W|$)/g, '$1$2')
+      .replace(/`([^`]+)`/g, '$1');
+
+  W.markdown = { render, citedNumbers, esc, plain };
 })(globalThis);
