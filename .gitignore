@@ -1,2 +1,3 @@
-test/fixtures/
 .DS_Store
+dist/
+test/fixtures/

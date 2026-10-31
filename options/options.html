@@ -11,6 +11,8 @@
     h2 { font-size: 16px; margin-top: 36px; }
     label { display: block; font-weight: 600; margin-top: 16px; }
     .hint { color: var(--muted); font-weight: normal; font-size: 12.5px; }
+    select { width: 100%; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; background: none; color: inherit; }
+    #providerHelp { margin: 6px 0 0; }
     input[type=text], input[type=password], input[type=number] { width: 100%; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; }
     .check { display: flex; gap: 8px; align-items: center; font-weight: normal; }
     .actions { margin-top: 24px; display: flex; gap: 8px; align-items: center; }
@@ -23,7 +25,12 @@
 <body>
   <h1>Wiki AI settings</h1>
 
-  <label>Base URL <span class="hint">OpenAI-compatible, ending in /v1</span>
+  <label>Where answers come from
+    <select id="provider"></select>
+  </label>
+  <p class="hint" id="providerHelp"></p>
+
+  <label>Base URL <span class="hint">OpenAI-compatible</span>
     <input type="text" id="baseUrl" spellcheck="false">
   </label>
   <label>API key <span class="hint">stored only in this browser</span>
@@ -36,7 +43,7 @@
     <input type="text" id="fallbackModel" list="models" spellcheck="false">
   </label>
   <datalist id="models"></datalist>
-  <label>Prompt budget in tokens <span class="hint">0 = automatic per model (PC 48k, Mac 9B 12k, Saluki 10k)</span>
+  <label>Prompt budget in tokens <span class="hint">0 = automatic per model (Gemini 64k, PC 48k, Mac 9B 12k, Saluki 10k)</span>
     <input type="number" id="contextTokens" min="0" step="1000">
   </label>
   <label>Max answer tokens

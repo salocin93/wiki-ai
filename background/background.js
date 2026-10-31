@@ -16,8 +16,8 @@ const W = globalThis.WikiAI;
 
 async function loadSettings() {
   const settings = await W.settings.load();
-  if (!settings.apiKey && settings.baseUrl.includes('ts.net')) {
-    throw new Error('No API key set. Open the Wiki AI settings and paste your gateway key.');
+  if (!settings.apiKey && (settings.baseUrl.includes('ts.net') || W.settings.isGemini(settings))) {
+    throw new Error('No API key set. Open the Wiki AI settings, pick where answers come from and paste the key.');
   }
   return settings;
 }
@@ -93,7 +93,9 @@ function sendToTab(tabId, msg) {
   chrome.tabs.sendMessage(tabId, msg).catch(() => {}); // not a Wikipedia article tab
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+  // New installs (e.g. a tester) start on the settings page to choose a model provider and paste a key.
+  if (reason === 'install' && !(await W.settings.load()).apiKey) chrome.runtime.openOptionsPage();
   chrome.contextMenus.create({
     id: 'wikiai-ask',
     title: 'Ask Wiki AI about “%s”',
