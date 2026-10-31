@@ -1,122 +1,238 @@
 const W = globalThis.WikiAI;
-const FIELDS = ['provider', 'baseUrl', 'apiKey', 'model', 'fallbackModel', 'contextTokens', 'maxAnswerTokens', 'maxSteps', 'disableThinking'];
-const HELP = {
-  gateway: 'Your own models through the LiteLLM gateway. This device must be on your tailnet; the key is LITELLM_MASTER_KEY.',
-  gemini: 'Get a free key at aistudio.google.com/apikey (sign in with a Google account, then "Create API key"). Free keys have rate limits, and Google may use free-tier requests to improve its products.',
-  custom: 'Any endpoint that speaks the OpenAI chat completions API, with streaming and tool calling.',
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+const ABOUT = {
+  gateway: { title: 'My local models', blurb: 'Your own models on your tailnet' },
+  gemini: { title: 'Google Gemini', blurb: "Google's API with a free key" },
+  custom: { title: 'Other provider', blurb: 'Any OpenAI-compatible endpoint' },
 };
-const providerEl = document.getElementById('provider');
+const HELP = {
+  gateway: 'Answers come from your LiteLLM gateway. This device must be on your tailnet; the key is LITELLM_MASTER_KEY.',
+  gemini: 'Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>: sign in, then "Create API key". Free keys have per-minute and daily limits, and Google may use free-tier requests to improve its products.',
+  custom: 'Any endpoint that speaks the OpenAI chat completions API with streaming and tool calling. Enter its address under Advanced connection.',
+};
+const NUMBER_FIELDS = ['maxSteps', 'maxAnswerTokens', 'contextTokens'];
+const OTHER = '__other__';
+
+let settings = null;
 let apiKeys = {};
-let currentProvider = 'gateway';
-const status = document.getElementById('status');
+let models = []; // what the provider's /models returned
 
-function show(text, isError = false) {
-  status.textContent = text;
-  status.className = isError ? 'err' : '';
-}
+// ---------- Saving ----------
 
-function read() {
-  const out = {};
-  for (const id of FIELDS) {
-    const el = document.getElementById(id);
-    out[id] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim();
-  }
+function collect() {
+  const out = { ...settings, apiKeys: { ...apiKeys, [settings.provider]: $('apiKey').value.trim() } };
+  out.apiKey = out.apiKeys[settings.provider];
+  out.baseUrl = $('baseUrl').value.trim();
+  out.model = $('model').value === OTHER ? settings.model : $('model').value;
+  out.fallbackModel = $('fallbackModel').value === OTHER ? settings.fallbackModel : $('fallbackModel').value;
+  out.disableThinking = $('disableThinking').checked;
+  for (const id of NUMBER_FIELDS) out[id] = Number($(id).value) || 0;
   return out;
 }
 
-async function init() {
-  providerEl.innerHTML = Object.entries(W.settings.PRESETS)
-    .map(([id, p]) => `<option value="${id}">${p.label}</option>`)
+let saveTimer = 0;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    settings = collect();
+    apiKeys = settings.apiKeys;
+    await W.settings.save(settings);
+    const el = $('saved');
+    el.textContent = 'Saved';
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 1400);
+  }, 350);
+}
+
+// ---------- Connection status ----------
+
+function connection(state, text) {
+  $('connDot').className = `dot ${state}`;
+  $('connText').textContent = text;
+  $('connection').classList.toggle('err', state === 'err');
+}
+
+// ---------- Provider cards ----------
+
+function renderProviders() {
+  $('providers').innerHTML = Object.keys(W.settings.PRESETS)
+    .map(
+      (id) => `<button type="button" class="provider" role="radio" aria-checked="${id === settings.provider}" data-id="${id}">
+        <strong>${esc(ABOUT[id]?.title || W.settings.PRESETS[id].label)}</strong><span>${esc(ABOUT[id]?.blurb || '')}</span>
+      </button>`
+    )
     .join('');
-  const s = await W.settings.load();
-  apiKeys = { ...(s.apiKeys || {}), [s.provider]: s.apiKey };
-  currentProvider = s.provider;
-  for (const id of FIELDS) {
-    const el = document.getElementById(id);
-    if (el.type === 'checkbox') el.checked = s[id];
-    else el.value = s[id];
-  }
-  document.getElementById('providerHelp').textContent = HELP[s.provider] || '';
+  $('providerHelp').innerHTML = HELP[settings.provider] || '';
 }
 
-// Switching preset fills in its connection fields and swaps in the key saved for it.
-providerEl.addEventListener('change', () => {
-  apiKeys[currentProvider] = document.getElementById('apiKey').value.trim();
-  currentProvider = providerEl.value;
-  const preset = W.settings.PRESETS[currentProvider];
-  for (const id of ['baseUrl', 'model', 'fallbackModel']) document.getElementById(id).value = preset[id];
-  document.getElementById('apiKey').value = apiKeys[currentProvider] || '';
-  document.getElementById('providerHelp').textContent = HELP[currentProvider] || '';
-  document.getElementById('models').innerHTML = '';
-  show('Paste the key for this provider, then Test connection and Save.');
+$('providers').addEventListener('click', (e) => {
+  const card = e.target.closest('.provider');
+  if (!card || card.dataset.id === settings.provider) return;
+  apiKeys[settings.provider] = $('apiKey').value.trim();
+  const preset = W.settings.PRESETS[card.dataset.id];
+  settings = { ...settings, provider: card.dataset.id, baseUrl: preset.baseUrl, model: preset.model, fallbackModel: preset.fallbackModel };
+  $('baseUrl').value = preset.baseUrl;
+  $('apiKey').value = apiKeys[settings.provider] || '';
+  models = [];
+  renderProviders();
+  fillModels();
+  scheduleSave();
+  if (settings.provider === 'custom') $('baseUrl').closest('details').open = true;
+  refreshModels();
 });
 
-document.getElementById('save').addEventListener('click', async () => {
-  const s = read();
-  apiKeys[s.provider] = s.apiKey;
-  await W.settings.save({ ...s, apiKeys });
-  show('Saved.');
-});
+// ---------- Model dropdowns ----------
 
-// Sends a one-token request: gateways can route models (e.g. a "pc/*" wildcard) that /models doesn't list.
-async function probe(settings, model) {
-  const res = await fetch(`${settings.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) },
-    body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
-    signal: AbortSignal.timeout(150_000), // the model may have to load first
-  });
-  if (res.ok) return 'answers';
-  return res.status === 503 ? 'unavailable right now (503, e.g. the machine is off)' : `error ${res.status}`;
+function fillSelect(select, current, { allowNone }) {
+  const options = [];
+  if (allowNone) options.push(`<option value="">None</option>`);
+  if (current && !models.includes(current)) options.push(`<option value="${esc(current)}">${esc(current)}${models.length ? ' (not listed)' : ''}</option>`);
+  for (const m of models) options.push(`<option value="${esc(m)}">${esc(m)}</option>`);
+  options.push(`<option value="${OTHER}">Other…</option>`);
+  select.innerHTML = options.join('');
+  select.value = current || '';
+  select.dataset.previous = select.value;
 }
 
-document.getElementById('test').addEventListener('click', async () => {
-  const settings = { ...W.settings.DEFAULTS, ...read() };
-  show('Connecting…');
-  try {
-    const models = await W.llm.listModels(settings);
-    // Offer the usable names; a gateway also lists aliases meant for other clients.
-    const relevant = settings.provider === 'gateway' ? models.filter((m) => /^(pc|mac)\//.test(m)) : models.filter((m) => !/embedding|aqa|imagen|veo|tts/i.test(m));
-    const usable = [...new Set([settings.model, settings.fallbackModel, ...relevant])].filter(Boolean);
-    document.getElementById('models').innerHTML = usable.map((m) => `<option value="${m}">`).join('');
+function fillModels() {
+  fillSelect($('model'), settings.model, { allowNone: false });
+  fillSelect($('fallbackModel'), settings.fallbackModel, { allowNone: true });
+}
 
-    // Gemini's model line-up changes; if the chosen model is gone, pick the best one available.
-    if (settings.provider === 'gemini' && !models.includes(settings.model)) {
-      const prefer = [/^gemma-4-26b-a4b-it$/, /^gemma-4.*-it$/, /^gemma-\d.*-it$/, /flash-lite$/, /flash$/];
-      const pick = prefer.map((re) => models.find((m) => re.test(m))).find(Boolean);
-      if (pick) {
-        document.getElementById('model').value = pick;
-        show(`“${settings.model}” isn't available for this key, so “${pick}” is filled in. Click Save to use it.`, true);
+for (const id of ['model', 'fallbackModel']) {
+  $(id).addEventListener('change', () => {
+    const select = $(id);
+    if (select.value === OTHER) {
+      const name = (prompt('Model name, exactly as the provider calls it:') || '').trim();
+      if (!name) {
+        select.value = select.dataset.previous;
         return;
       }
-    }
-    const results = [];
-    for (const m of [settings.model, settings.fallbackModel].filter(Boolean)) {
-      if (models.includes(m)) {
-        results.push({ m, state: 'listed' });
-        continue;
+      settings[id] = name;
+      fillModels();
+    } else settings[id] = select.value;
+    select.dataset.previous = select.value;
+    scheduleSave();
+  });
+}
+
+// Gemini's line-up changes; if a chosen model is gone, pick the best available one.
+function pickGemini(current, avoid) {
+  if (models.includes(current) && current !== avoid) return current;
+  const prefer = [/^gemini-3\.5-flash-lite$/, /^gemini-3\.\d+-flash-lite$/, /^gemini-\d.*flash-lite$/, /^gemma-4.*-it$/, /flash$/];
+  return prefer.flatMap((re) => models.filter((m) => re.test(m) && m !== avoid))[0] || current;
+}
+
+let loadId = 0;
+async function refreshModels({ probe = false } = {}) {
+  const s = collect();
+  if (!s.baseUrl) return connection('', 'Enter the endpoint address under Advanced connection.');
+  if (!s.apiKey && s.provider !== 'custom') return connection('', 'Paste your key to load the available models.');
+  const id = ++loadId;
+  connection('busy', 'Loading models…');
+  try {
+    const listed = await W.llm.listModels(s);
+    if (id !== loadId) return;
+    // Leave out models that can't chat (embeddings, image and video generation, speech).
+    models = listed.filter((m) => !/embed|imagen|veo|tts|aqa|image-generation|lyria/i.test(m)).sort();
+    let note = '';
+    if (s.provider === 'gemini') {
+      const model = pickGemini(settings.model);
+      const fallback = settings.fallbackModel ? pickGemini(settings.fallbackModel, model) : '';
+      if (model !== settings.model || fallback !== settings.fallbackModel) {
+        note = ` Picked ${[model !== settings.model && model, fallback !== settings.fallbackModel && fallback].filter(Boolean).join(' and ')} because the previous choice isn't available.`;
+        settings.model = model;
+        settings.fallbackModel = fallback;
+        scheduleSave();
       }
-      show(`Connected. Checking ${m} (can take a minute if it has to load)…`);
-      results.push({ m, state: await probe(settings, m).catch((e) => `failed: ${e.message}`) });
     }
-    const bad = results.filter((r) => r.state !== 'listed' && r.state !== 'answers');
-    show(`Connected. ${results.map((r) => `${r.m}: ${r.state === 'listed' ? 'available' : r.state}`).join(' · ')}`, bad.length > 0);
+    fillModels();
+    let text = `Connected · ${models.length} models available.${note}`;
+    let state = note ? 'warn' : 'ok';
+    // Gateways can route models (e.g. "pc/*") they don't list; a one-token request checks those.
+    const unlisted = [settings.model, settings.fallbackModel].filter((m) => m && !models.includes(m));
+    if (probe && unlisted.length) {
+      const results = [];
+      for (const m of unlisted) {
+        connection('busy', `Checking ${m} (can take a minute if it has to load)…`);
+        results.push(`${m}: ${await probeModel(s, m)}`);
+      }
+      if (id !== loadId) return;
+      text += ` ${results.join(' · ')}`;
+      if (results.some((r) => !r.endsWith('answers'))) state = 'warn';
+    } else if (unlisted.length) text += ` Not in the list: ${unlisted.join(', ')} (Test connection checks them).`;
+    connection(state, text);
   } catch (e) {
-    const hint = settings.provider === 'gateway' ? 'Is this device on the tailnet, and is the key right?' : 'Is the key right?';
-    show(`Failed: ${e.message}. ${hint}`, true);
+    if (id !== loadId) return;
+    models = [];
+    fillModels();
+    const hint = s.provider === 'gateway' ? 'Is this device on the tailnet, and is the key right?' : 'Is the key right?';
+    connection('err', `Couldn't load models: ${e.message}. ${hint}`);
   }
+}
+
+async function probeModel(s, model) {
+  try {
+    const res = await fetch(`${s.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {}) },
+      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+      signal: AbortSignal.timeout(150_000), // the model may have to load first
+    });
+    if (res.ok) return 'answers';
+    if (res.status === 429) return 'rate-limited right now';
+    return res.status === 503 ? 'unavailable right now (e.g. the machine is off)' : `error ${res.status}`;
+  } catch (e) {
+    return `failed: ${e.message}`;
+  }
+}
+
+// ---------- Other fields ----------
+
+let keyTimer = 0;
+$('apiKey').addEventListener('input', () => {
+  scheduleSave();
+  clearTimeout(keyTimer);
+  keyTimer = setTimeout(() => refreshModels(), 700);
 });
+$('baseUrl').addEventListener('change', () => {
+  scheduleSave();
+  refreshModels();
+});
+$('toggleKey').addEventListener('click', () => {
+  const hidden = $('apiKey').type === 'password';
+  $('apiKey').type = hidden ? 'text' : 'password';
+  $('toggleKey').textContent = hidden ? 'Hide' : 'Show';
+});
+$('test').addEventListener('click', () => refreshModels({ probe: true }));
+for (const id of ['disableThinking', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
+
+// ---------- Storage ----------
 
 async function showStorage() {
   const s = await W.topics.handle({ type: 'cache:stats' });
-  const mb = s.bytes != null ? ` · about ${(s.bytes / 1e6).toFixed(1)} MB used by the extension` : '';
-  document.getElementById('storage').textContent = `${s.entries} cached Wikipedia responses · ${s.topics} saved topics${mb}`;
+  const mb = s.bytes != null ? ` · about ${(s.bytes / 1e6).toFixed(1)} MB in total` : '';
+  $('storage').textContent = `${s.entries} cached Wikipedia responses · ${s.topics} saved topics${mb}`;
 }
-
-document.getElementById('clearCache').addEventListener('click', async () => {
+$('clearCache').addEventListener('click', async () => {
   await W.topics.handle({ type: 'cache:clear' });
   showStorage();
 });
 
-init();
-showStorage();
+// ---------- Start ----------
+
+(async function init() {
+  settings = await W.settings.load();
+  if (!W.settings.PRESETS[settings.provider]) settings = { ...settings, provider: Object.keys(W.settings.PRESETS)[0] };
+  apiKeys = { ...(settings.apiKeys || {}), [settings.provider]: settings.apiKey };
+  $('apiKey').value = settings.apiKey || '';
+  $('baseUrl').value = settings.baseUrl || '';
+  $('disableThinking').checked = settings.disableThinking;
+  for (const id of NUMBER_FIELDS) $(id).value = settings[id];
+  renderProviders();
+  fillModels();
+  refreshModels();
+  showStorage();
+})();
