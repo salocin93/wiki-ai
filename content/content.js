@@ -1088,17 +1088,18 @@
     },
   };
 
-  // The answer language for this page: the setting, resolved against the article's language.
+  // The answer language for this page: the setting, resolved against the article's and browser's language.
   // "Same as my question" uses the browser's language for the starter questions.
   function phrases() {
-    const choice = state.answerLanguage || 'article';
-    const code = choice === 'article' ? lang : choice === 'question' ? (navigator.language || 'en').slice(0, 2) : choice;
+    const choice = state.answerLanguage || 'browser';
+    const browser = (navigator.language || 'en').split('-')[0].toLowerCase();
+    const code = choice === 'article' ? lang : choice === 'browser' || choice === 'question' ? browser : choice;
     return PHRASES[code] || PHRASES.en;
   }
 
   async function loadLanguage() {
     try {
-      state.answerLanguage = (await chrome.runtime.sendMessage({ type: 'getSettings' }))?.answerLanguage || 'article';
+      state.answerLanguage = (await chrome.runtime.sendMessage({ type: 'getSettings' }))?.answerLanguage || 'browser';
     } catch {}
   }
 

@@ -24,7 +24,9 @@ function languageOptions() {
       return code;
     }
   };
+  const mine = W.settings.browserLanguage();
   return [
+    `<option value="browser">My language (${esc(own(mine))}, from the browser)</option>`,
     `<option value="article">Same as the Wikipedia article</option>`,
     `<option value="question">Same as my question</option>`,
     ...LANGUAGES.map((c) => {
@@ -50,6 +52,7 @@ function collect() {
   out.fallbackModel = $('fallbackModel').value === OTHER ? settings.fallbackModel : $('fallbackModel').value;
   out.disableThinking = $('disableThinking').checked;
   out.answerLanguage = $('answerLanguage').value;
+  out.answerLanguageChosen = settings.answerLanguageChosen;
   for (const id of NUMBER_FIELDS) out[id] = Number($(id).value) || 0;
   return out;
 }
@@ -229,7 +232,11 @@ $('toggleKey').addEventListener('click', () => {
   $('toggleKey').textContent = hidden ? 'Hide' : 'Show';
 });
 $('test').addEventListener('click', () => refreshModels({ probe: true }));
-for (const id of ['disableThinking', 'answerLanguage', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
+for (const id of ['disableThinking', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
+$('answerLanguage').addEventListener('change', () => {
+  settings.answerLanguageChosen = true; // from now on this choice wins over the default
+  scheduleSave();
+});
 
 // ---------- Storage ----------
 
@@ -253,7 +260,7 @@ $('clearCache').addEventListener('click', async () => {
   $('baseUrl').value = settings.baseUrl || '';
   $('disableThinking').checked = settings.disableThinking;
   $('answerLanguage').innerHTML = languageOptions();
-  $('answerLanguage').value = settings.answerLanguage || 'article';
+  $('answerLanguage').value = settings.answerLanguage || 'browser';
   for (const id of NUMBER_FIELDS) $(id).value = settings[id];
   renderProviders();
   fillModels();
