@@ -34,8 +34,8 @@
   // ---------- Page reading helpers ----------
 
   const NON_ARTICLE_NS = /^(File|Image|Help|Special|Wikipedia|Template|Category|Portal|Talk|Module|Draft|User|MediaWiki|Book|Media|WP|Template talk|User talk)(:)/i;
-  const BACK_MATTER = /^(see also|references|notes|footnotes|external links|further reading|bibliography|sources|citations|works cited)$/i;
-  const SKIP_LINK_AREAS = '.reflist, .references, .mw-references-wrap, sup.reference, .mw-editsection, .sistersitebox, .shortdescription, .navbar';
+  const BACK_MATTER = /^(see also|references|notes|footnotes|external links|further reading|bibliography|sources|citations|works cited|literature|general references|notes and references|primary sources|secondary sources)\b/i;
+  const SKIP_LINK_AREAS = '.reflist, .references, .mw-references-wrap, sup.reference, cite, .citation, .reference-text, .mw-editsection, .sistersitebox, .shortdescription, .navbar';
 
   const headingText = (h) => (h.querySelector('.mw-headline')?.textContent || h.textContent).replace(/\[edit\]$/, '').trim();
   const headings = () => [...article.querySelectorAll('h2, h3, h4')];
@@ -393,8 +393,69 @@
     }
   }
 
-  function setOpen(open) {
+  // Whether the panel is open, and in which section, is remembered per browser tab (sessionStorage),
+  // so following a link to another article keeps it open.
+  const remember = (key, value) => {
+    try {
+      sessionStorage.setItem(`wikiai:${key}`, value);
+    } catch {}
+  };
+  const recall = (key) => {
+    try {
+      return sessionStorage.getItem(`wikiai:${key}`);
+    } catch {
+      return null;
+    }
+  };
+
+  // Hand-off to new tabs: when the panel is open and the reader presses on an article link, note the link
+  // briefly; if that article opens in a new tab soon after, the panel opens there too.
+  const HANDOFF_MS = 2 * 60 * 1000;
+  const handoffStore = {
+    async get() {
+      try {
+        if (chrome.storage?.local) return (await chrome.storage.local.get('handoff')).handoff || [];
+        return JSON.parse(localStorage.getItem('wikiai:handoff') || '[]');
+      } catch {
+        return [];
+      }
+    },
+    async set(list) {
+      try {
+        if (chrome.storage?.local) await chrome.storage.local.set({ handoff: list });
+        else localStorage.setItem('wikiai:handoff', JSON.stringify(list));
+      } catch {}
+    },
+  };
+  const pathOf = (url) => {
+    try {
+      const u = new URL(url, location.href);
+      return decodeURIComponent(u.pathname).replace(/_/g, ' ');
+    } catch {
+      return '';
+    }
+  };
+
+  async function noteLink(a) {
+    if (!state.open || !/\/wiki\//.test(a.href)) return;
+    const list = (await handoffStore.get()).filter((h) => Date.now() - h.at < HANDOFF_MS).slice(-4);
+    list.push({ path: pathOf(a.href), view: state.view, at: Date.now() });
+    handoffStore.set(list);
+  }
+
+  // Was this page opened from a link pressed while the panel was open? Returns the section to show.
+  async function takeHandoff() {
+    const list = await handoffStore.get();
+    const here = [pathOf(location.href), pathOf(canonical)];
+    const fresh = list.filter((h) => Date.now() - h.at < HANDOFF_MS);
+    const match = fresh.find((h) => here.includes(h.path));
+    if (match) handoffStore.set(fresh.filter((h) => h !== match));
+    return match?.view || null;
+  }
+
+  function setOpen(open, { focus = true } = {}) {
     state.open = open;
+    remember('open', open ? '1' : '0');
     panel.hidden = !open;
     launcher.hidden = open;
     document.documentElement.classList.toggle('wikiai-open', open);
@@ -406,7 +467,7 @@
     if (open) {
       render();
       refreshTopic();
-      setTimeout(() => input.focus(), 0);
+      if (focus) setTimeout(() => input.focus(), 0);
     }
   }
 
@@ -477,6 +538,7 @@
 
   function setView(view) {
     state.view = view;
+    remember('view', view);
     for (const b of navEl.querySelectorAll('.view-btn')) {
       const on = b.dataset.view === view;
       b.classList.toggle('active', on);
@@ -609,13 +671,15 @@
     return `<section class="block"><h4>Saved topics</h4><ul>${rows}</ul></section>`;
   }
 
+  const BUILDING = 'Generating topic cluster…';
+
   function buildTopic() {
     try {
       ensureAlive();
     } catch {
       return;
     }
-    state.building = 'Starting';
+    state.building = BUILDING;
     state.topicError = null;
     renderTopic();
     renderScopeBar();
@@ -771,13 +835,24 @@
     scopeBar.hidden = !t;
     if (!t) return;
     const usingTopic = !!topicHere();
+    const caption = usingTopic
+      ? `Searching all ${t.pages.length} articles in the topic “${esc(t.name)}”`
+      : `Searching “${esc(title)}” and the articles it links to`;
     scopeBar.innerHTML = `
-      <span class="scope-label">Ask about</span>
-      <span class="seg" role="radiogroup" aria-label="Ask about">
-        <button class="seg-btn scope-article${usingTopic ? '' : ' on'}" role="radio" aria-checked="${!usingTopic}" title="Only this article and the articles it links to">${esc(truncate(title, 24))}</button>
-        <button class="seg-btn scope-topic${usingTopic ? ' on' : ''}" role="radio" aria-checked="${usingTopic}" title="All ${t.pages.length} articles in the topic">${esc(truncate(t.name, 24))} <span class="seg-meta">topic</span></button>
-      </span>
-      ${inTopic() ? '' : '<button class="link build-topic" title="Build a topic cluster starting from this article">New topic from this article</button>'}`;
+      <div class="scope-row">
+        <span class="scope-label">Answers use</span>
+        <span class="seg" role="radiogroup" aria-label="Answers use">
+          <button class="seg-btn scope-article${usingTopic ? '' : ' on'}" role="radio" aria-checked="${!usingTopic}">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>
+            This article
+          </button>
+          <button class="seg-btn scope-topic${usingTopic ? ' on' : ''}" role="radio" aria-checked="${usingTopic}">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>
+            Topic · ${t.pages.length} articles
+          </button>
+        </span>
+      </div>
+      <div class="scope-caption">${caption}${inTopic() ? '' : ' · <button class="link build-topic" title="Build a topic cluster starting from this article">New topic from this article</button>'}</div>`;
   }
 
   function renderChatBar() {
@@ -831,7 +906,9 @@
     return [
       `Give me an overview of ${t.name} and its main themes`,
       a && b ? `How is “${a.name}” connected to “${b.name}”?` : 'How are the articles in this topic connected?',
-      `How does ${title} fit into ${t.name}?`,
+      title === t.seed || title === t.name
+        ? `Which articles in ${t.name} should I read first, and why?`
+        : `How does ${title} fit into ${t.name}?`,
     ];
   }
 
@@ -981,7 +1058,7 @@
 
   function onAgentMessage(msg) {
     if (msg.type === 'topicProgress' || msg.type === 'topicBuilt' || msg.type === 'topicError') {
-      if (msg.type === 'topicProgress') state.building = msg.text;
+      if (msg.type === 'topicProgress') state.building = BUILDING; // the steps are internal detail
       if (msg.type === 'topicBuilt') {
         state.building = null;
         state.topic = msg.topic;
@@ -1233,4 +1310,22 @@
 
   render();
   refreshTopic();
+  // Reopen the panel after following a link in this tab, or in a new tab opened from a tab where it was open.
+  const restore = (view) => {
+    if (view === 'topic' || view === 'map') setView(view);
+    setOpen(true, { focus: false });
+  };
+  if (recall('open') === '1') restore(recall('view'));
+  else if (recall('open') === null) takeHandoff().then((view) => view && restore(view));
+
+  for (const type of ['pointerdown', 'contextmenu']) {
+    document.addEventListener(
+      type,
+      (e) => {
+        const a = e.target.closest?.('a[href]');
+        if (a && !e.composedPath().includes(host)) noteLink(a);
+      },
+      true
+    );
+  }
 })();
