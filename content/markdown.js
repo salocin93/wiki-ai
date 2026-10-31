@@ -7,7 +7,7 @@
   // Matches [3], [2, 5], [Source 3] and 【3】.
   const CITE = /(?:\[|【)\s*(?:sources?\s*)?(\d{1,3}(?:\s*[,;]\s*(?:sources?\s*)?\d{1,3})*)\s*(?:\]|】)/gi;
 
-  function inline(text, known) {
+  function inline(text, known, attrs) {
     let s = esc(text);
     s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -15,21 +15,27 @@
     s = s.replace(CITE, (whole, nums) => {
       const ns = nums.match(/\d+/g).map(Number);
       if (!ns.every((n) => known(n))) return whole;
-      return ns.map((n) => `<button class="cite" data-n="${n}" title="Show source ${n}">${n}</button>`).join('');
+      return ns
+        .map((n) => {
+          const a = attrs?.(n) || {};
+          return `<button class="cite ${a.className || ''}" data-n="${n}" title="${esc(a.title || `Source ${n}`)}">${n}</button>`;
+        })
+        .join('');
     });
     return s;
   }
 
-  function render(src, known = () => true) {
+  // attrs(n) may return {title, className} for citation n.
+  function render(src, known = () => true, attrs) {
     const out = [];
     let list = null;
     let para = [];
     const flushPara = () => {
-      if (para.length) out.push(`<p>${para.map((l) => inline(l, known)).join('<br>')}</p>`);
+      if (para.length) out.push(`<p>${para.map((l) => inline(l, known, attrs)).join('<br>')}</p>`);
       para = [];
     };
     const flushList = () => {
-      if (list) out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i, known)}</li>`).join('')}</${list.tag}>`);
+      if (list) out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i, known, attrs)}</li>`).join('')}</${list.tag}>`);
       list = null;
     };
     for (const line of src.split('\n')) {
@@ -39,7 +45,7 @@
       if (heading) {
         flushPara();
         flushList();
-        out.push(`<h4>${inline(heading[1], known)}</h4>`);
+        out.push(`<h4>${inline(heading[1], known, attrs)}</h4>`);
       } else if (bullet || numbered) {
         flushPara();
         const tag = bullet ? 'ul' : 'ol';

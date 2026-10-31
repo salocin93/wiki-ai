@@ -176,10 +176,13 @@
     for (let d = el.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true;
   }
 
+  function articleUrl(src) {
+    return `https://${src.lang}.wikipedia.org/wiki/${encodeURIComponent(src.page.replace(/ /g, '_'))}`;
+  }
+
   function linkedUrl(src) {
     const words = src.text.replace(/\s+/g, ' ').split(' ').slice(0, 6).join(' ');
-    const slug = encodeURIComponent(src.page.replace(/ /g, '_'));
-    return `https://${src.lang}.wikipedia.org/wiki/${slug}#:~:text=${encodeURIComponent(words)}`;
+    return `${articleUrl(src)}#:~:text=${encodeURIComponent(words)}`;
   }
 
   // ---------- UI ----------
@@ -228,7 +231,13 @@
   pageStyle.textContent = `
     ::highlight(wikiai-cite) { background-color: rgba(255, 196, 0, 0.45); color: inherit; }
     html.wikiai-open body { margin-right: ${PANEL_WIDTH}px !important; }
-    html.wikiai-open .vector-sticky-header { right: ${PANEL_WIDTH}px !important; width: auto !important; }`;
+    html.wikiai-open .vector-sticky-header { right: ${PANEL_WIDTH}px !important; width: auto !important; }
+    /* Fundraising and other CentralNotice banners can overlay the panel; hide them while it's open
+       (hidden only, not dismissed, so Wikipedia's own "don't show again" choice stays the user's). */
+    html.wikiai-open #siteNotice, html.wikiai-open #centralNotice, html.wikiai-open .cn-banner,
+    html.wikiai-open .cn-fundraising, html.wikiai-open [id^="frb"], html.wikiai-open [class*="frb-"],
+    html.wikiai-open [id^="WMDE"], html.wikiai-open .wmde-banner { display: none !important; }
+    html.wikiai-open, html.wikiai-open body { overflow: auto !important; }`;
   document.head.appendChild(pageStyle);
 
   const $ = (sel) => root.querySelector(sel);
@@ -253,11 +262,30 @@
   new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
 
+  // Vector 2022's pinned right column (Appearance, Tools) moves into its dropdown menus while the panel is open,
+  // so the article keeps its width. Only the page's classes change; the user's saved preference is untouched.
+  const PINNED_RIGHT = [
+    ['vector-feature-appearance-pinned-clientpref-1', 'vector-feature-appearance-pinned-clientpref-0'],
+    ['vector-feature-page-tools-pinned-enabled', 'vector-feature-page-tools-pinned-disabled'],
+  ];
+  let unpinned = [];
+  function unpinWikipediaColumn(open) {
+    const cls = document.documentElement.classList;
+    if (open) {
+      unpinned = PINNED_RIGHT.filter(([pinned]) => cls.contains(pinned));
+      for (const [pinned, hidden] of unpinned) cls.replace(pinned, hidden);
+    } else {
+      for (const [pinned, hidden] of unpinned) cls.replace(hidden, pinned);
+      unpinned = [];
+    }
+  }
+
   function setOpen(open) {
     state.open = open;
     panel.hidden = !open;
     launcher.hidden = open;
     document.documentElement.classList.toggle('wikiai-open', open);
+    unpinWikipediaColumn(open);
     if (open) {
       render();
       setTimeout(() => input.focus(), 0);
@@ -285,6 +313,43 @@
 
   const known = (n) => n >= 1 && n <= state.sources.length;
 
+  // Each cited page gets a stable color for the conversation, shared by its inline citations and its source group.
+  const PAGE_COLORS = 6;
+  function pageColor(page) {
+    const pages = [...new Set(state.sources.map((s) => s.page))];
+    const i = page === title ? 0 : pages.filter((p) => p !== title).indexOf(page) + 1;
+    return i % PAGE_COLORS;
+  }
+
+  function citeAttrs(n) {
+    const s = state.sources[n - 1];
+    return { title: `${s.page} › ${s.section}`, className: `c${pageColor(s.page)}` };
+  }
+
+  // Sources under an answer, grouped by Wikipedia page; sections are secondary.
+  function renderSourceGroups(numbers) {
+    const groups = new Map();
+    for (const n of numbers) {
+      const s = state.sources[n - 1];
+      if (!groups.has(s.page)) groups.set(s.page, []);
+      groups.get(s.page).push(s);
+    }
+    const esc = W.markdown.esc;
+    return `<div class="sources">${[...groups]
+      .map(([page, items]) => {
+        const first = items[0];
+        const pageEl = first.current
+          ? `<span class="page-name">${esc(page)}</span><span class="tag">this article</span>`
+          : `<a class="page-name" href="${articleUrl(first)}" target="_blank" rel="noopener" title="Open “${esc(page)}”">${esc(page)} ↗</a>`;
+        const sections = items
+          .sort((a, b) => a.n - b.n)
+          .map((s) => `<button class="source" data-n="${s.n}" title="${esc(s.text.slice(0, 200))}"><span class="num">${s.n}</span><span class="where">${esc(s.section.split(' › ').pop())}</span></button>`)
+          .join('');
+        return `<div class="source-group c${pageColor(page)}"><div class="page-row">${pageEl}</div><div class="chips">${sections}</div></div>`;
+      })
+      .join('')}</div>`;
+  }
+
   function renderMessage(m, i) {
     if (m.role === 'user') {
       const quote = m.quote ? `<blockquote>${W.markdown.esc(m.quote.text.slice(0, 280))}${m.quote.text.length > 280 ? '…' : ''}</blockquote>` : '';
@@ -294,21 +359,13 @@
       ? `<details class="steps"${m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${W.markdown.esc(s)}</li>`).join('')}</ul></details>`
       : '';
     const reasoning = m.reasoning ? `<details class="reasoning"><summary>Thinking</summary><div>${W.markdown.esc(m.reasoning)}</div></details>` : '';
-    const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known)}</div>` : '';
+    const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, citeAttrs)}</div>` : '';
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.markdown.esc(m.status || 'Thinking')}</div>` : '';
     const error = m.error
       ? `<div class="error">${W.markdown.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}</div>`
       : '';
     const cited = m.pending ? [] : W.markdown.citedNumbers(m.content || '').filter(known);
-    const sources = cited.length
-      ? `<div class="sources">${cited
-          .map((n) => {
-            const s = state.sources[n - 1];
-            const where = s.current ? s.section : `${s.page} › ${s.section}`;
-            return `<button class="source" data-n="${n}" title="${W.markdown.esc(s.text.slice(0, 200))}"><span class="num">${n}</span><span class="where${s.current ? '' : ' linked'}">${W.markdown.esc(where)}</span></button>`;
-          })
-          .join('')}</div>`
-      : '';
+    const sources = cited.length ? renderSourceGroups(cited) : '';
     const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}</div>` : '';
     return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${status}${error}${sources}${meta}</div>`;
   }
@@ -419,9 +476,12 @@
   function showPreview(src) {
     previewEl.hidden = false;
     previewEl.innerHTML = `
-      <div class="preview-head">
+      <div class="preview-head c${pageColor(src.page)}">
         <span class="num">${src.n}</span>
-        <span class="where">${W.markdown.esc(src.current ? src.section : `${src.page} › ${src.section}`)}</span>
+        <span class="preview-title">
+          <span class="page-name">${W.markdown.esc(src.page)}</span>
+          <span class="section-name">${W.markdown.esc(src.section)}</span>
+        </span>
         <button class="icon close-preview" aria-label="Close preview">×</button>
       </div>
       <div class="preview-text">${W.markdown.esc(src.text)}</div>

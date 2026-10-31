@@ -23,12 +23,13 @@
     await new Promise((r) => setTimeout(r, 400));
     if (tools && toolMsgs.length === 0) return call('search_article', { query: question });
     if (tools && toolMsgs.length === 1) return call('find_linked_articles', { query: question });
-    if (tools && toolMsgs.length === 2) {
-      const first = toolMsgs[1].content.match(/^- (.+?)(?: \(linked as| —)/m)?.[1] || 'Lord Byron';
-      return call('search_linked_article', { title: first, query: question });
+    const linked = [...(toolMsgs[1]?.content || '').matchAll(/^- (.+?)(?: \(linked as| —)/gm)].map((m) => m[1]);
+    if (tools && toolMsgs.length >= 2 && toolMsgs.length < 2 + Math.min(3, linked.length)) {
+      return call('search_linked_article', { title: linked[toolMsgs.length - 2], query: question });
     }
-    const nums = [...new Set(toolMsgs.map((m) => m.content).join('\n').match(/^\[(\d+)\]/gm) || [])].map((x) => x.slice(1, -1));
-    const answer = `Here is what I found about **${question.slice(0, 60)}**.\n\nThe article covers this in a few places [${nums[0]}][${nums[1]}]. A linked article adds detail [${nums[nums.length - 1]}].\n\n- First point [1]\n- Second point [${nums[2] || 1}]`;
+    const nums = (k) => (toolMsgs[k]?.content.match(/^\[(\d+)\]/gm) || []).map((x) => x.slice(1, -1));
+    const ref = (k, i = 0) => (nums(k)[i] ? `[${nums(k)[i]}]` : '');
+    const answer = `Here is what I found about **${question.trim().slice(0, 60)}**.\n\nThe article covers this in a few places ${ref(0)}${ref(0, 1)}. Linked articles add detail ${ref(2)}${ref(3)}.\n\n- First point [1]\n- Second point ${ref(4)}${ref(2, 1)}`;
     for (let i = 1; i <= answer.length; i += 12) {
       onUpdate?.({ answer: answer.slice(0, i), reasoning: '' });
       await new Promise((r) => setTimeout(r, 15));
