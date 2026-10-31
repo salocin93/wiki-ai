@@ -323,3 +323,8 @@ button.primary { padding: 8px 14px; border-radius: 8px; border: none; background
 .seg-meta { font-weight: 400; opacity: 0.8; }
 .map-empty .topic { padding: 0; }
 .map-empty .dot { display: inline-block; vertical-align: middle; margin-right: 4px; }
+
+/* History tab */
+.view-history { overflow-y: auto; }
+.history-view { padding: 14px 16px 20px; }
+.chat-title { text-align: left; }

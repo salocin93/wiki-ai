@@ -24,7 +24,6 @@
     links: null,
     topic: null, // active topic cluster
     view: 'chat', // 'chat', 'topic' or 'map'
-    historyOpen: false, // chat history list shown instead of the chat
     savedTopics: [],
     building: null, // progress text while a cluster is being built
     topicError: null,
@@ -320,9 +319,13 @@
         <button class="view-btn" role="tab" aria-selected="false" data-view="map">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="5" r="2"/><circle cx="20" cy="5" r="2"/><circle cx="4" cy="19" r="2"/><circle cx="20" cy="19" r="2"/><path d="M9.6 10.2L5.5 6.4M14.4 10.2l4.1-3.8M9.6 13.8l-4.1 3.8M14.4 13.8l4.1 3.8"/></svg>
           Map</button>
+        <button class="view-btn" role="tab" aria-selected="false" data-view="history">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          History</button>
       </nav>
       <section class="view view-topic" role="tabpanel" hidden><div class="topic"></div></section>
       <section class="view view-map" role="tabpanel" hidden></section>
+      <section class="view view-history" role="tabpanel" hidden><div class="history-view"></div></section>
       <section class="view view-chat" role="tabpanel">
       <div class="scope-bar" hidden></div>
       <div class="chat-bar"></div>
@@ -369,6 +372,8 @@
   const chatView = $('.view-chat');
   const topicView = $('.view-topic');
   const mapView = $('.view-map');
+  const historyView = $('.view-history');
+  const historyEl = $('.history-view');
   const chatBar = $('.chat-bar');
   const scopeBar = $('.scope-bar');
   $('.sub').textContent = title;
@@ -556,9 +561,14 @@
     chatView.hidden = view !== 'chat';
     topicView.hidden = view !== 'topic';
     mapView.hidden = view !== 'map';
+    historyView.hidden = view !== 'history';
     if (view !== 'map') unmountMap?.();
     if (view === 'topic') renderTopic();
     if (view === 'map') renderMapView();
+    if (view === 'history') {
+      renderHistory();
+      loadAllChats();
+    }
     if (view === 'chat') {
       renderChatBar();
       render(true);
@@ -722,7 +732,6 @@
       onAsk: async (t2) => {
         closeMap?.();
         setView('chat');
-        state.historyOpen = false;
         if (!topicHere()) await setScope(true);
         const q = `Tell me about ${t2} and how it connects to ${t.name}.`;
         if (state.busy) {
@@ -797,7 +806,6 @@
     const cur = conv();
     if (cur) cur.scrollTop = messagesEl.scrollTop;
     state.activeId = id;
-    state.historyOpen = false;
     previewEl.hidden = true;
     if (state.view !== 'chat') setView('chat');
     renderChatBar();
@@ -822,6 +830,7 @@
     if (state.activeId === id) state.activeId = state.convs[state.convs.length - 1].id;
     renderChatBar();
     render();
+    if (state.view === 'history') renderHistoryLists();
   }
 
   // Suggested questions continue the chat they were suggested in.
@@ -869,10 +878,8 @@
   function renderChatBar() {
     renderScopeBar();
     const c = conv();
-    const saved = state.convs.filter((x) => x.messages.length).length;
     chatBar.innerHTML = `
-      <button class="link history-toggle" aria-expanded="${state.historyOpen}">${state.historyOpen ? '‹ Back to chat' : `History${saved ? ` (${saved})` : ''}`}</button>
-      <span class="chat-title" title="${esc(c?.title || '')}">${state.historyOpen ? '' : esc(truncate(c?.title || 'New chat', 44))}</span>
+      <span class="chat-title" title="${esc(c?.title || '')}">${esc(truncate(c?.title || 'New chat', 52))}</span>
       <button class="link new-chat">New chat</button>`;
     renderNav();
   }
@@ -895,7 +902,7 @@
     } catch {
       state.allChats = [];
     }
-    if (state.historyOpen && state.view === 'chat') renderHistoryLists();
+    if (state.view === 'history') renderHistoryLists();
   }
 
   function scopeLabel(scope) {
@@ -909,13 +916,13 @@
   }
 
   function renderHistory() {
-    if (!messagesEl.querySelector('.history-search')) {
-      messagesEl.innerHTML = `
+    if (!historyEl.querySelector('.history-search')) {
+      historyEl.innerHTML = `
         <div class="history">
           <input class="history-search" type="search" placeholder="Search your chats" aria-label="Search your chats">
           <div class="history-lists"></div>
         </div>`;
-      const box = messagesEl.querySelector('.history-search');
+      const box = historyEl.querySelector('.history-search');
       box.value = state.historyFilter;
       box.addEventListener('input', () => {
         state.historyFilter = box.value;
@@ -927,7 +934,7 @@
   }
 
   function renderHistoryLists() {
-    const listEl = messagesEl.querySelector('.history-lists');
+    const listEl = historyEl.querySelector('.history-lists');
     if (!listEl) return;
     const q = state.historyFilter.trim().toLowerCase();
     const match = (t) => !q || (t || '').toLowerCase().includes(q);
@@ -1027,7 +1034,6 @@
   function render(restoreScroll = false) {
     const c = conv();
     if (!c || state.view !== 'chat') return;
-    if (state.historyOpen) return renderHistory();
     if (!c.messages.length) {
       const t = topicHere();
       const intro = t
@@ -1346,13 +1352,7 @@
     else if (t.matches('.view-btn')) setView(t.dataset.view);
     else if (t.matches('.explore-q')) askSuggested(t.dataset.q, convById(t.dataset.conv) || conv());
     else if (t.matches('.followup')) askSuggested(t.dataset.q);
-    else if (t.matches('.history-toggle')) {
-      state.historyOpen = !state.historyOpen;
-      state.historyFilter = '';
-      renderChatBar();
-      render(true);
-      if (state.historyOpen) loadAllChats();
-    } else if (t.matches('.open-saved-chat')) openSavedChat(t.dataset.scope, t.dataset.id);
+    else if (t.matches('.open-saved-chat')) openSavedChat(t.dataset.scope, t.dataset.id);
     else if (t.matches('.delete-saved-chat')) {
       if (confirm("Delete this chat? This can't be undone.")) send({ type: 'conv:delete', scope: t.dataset.scope, id: t.dataset.id }).then(loadAllChats, () => {});
     } else if (t.matches('.new-chat')) newChat();
