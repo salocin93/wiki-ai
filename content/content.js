@@ -29,6 +29,9 @@
     building: null, // progress text while a cluster is being built
     topicError: null,
     useTopicHere: null, // null: use the open topic only on its own articles; true/false: the reader chose
+    allChats: [], // summaries of saved chats everywhere, for the history
+    historyFilter: '',
+    pendingChat: null, // a chat to open once its topic or article has loaded
   };
 
   // ---------- Page reading helpers ----------
@@ -308,9 +311,15 @@
         </button>
       </header>
       <nav class="views" role="tablist" aria-label="Sidebar sections">
-        <button class="view-btn active" role="tab" aria-selected="true" data-view="chat">Chat<span class="dot" hidden></span></button>
-        <button class="view-btn" role="tab" aria-selected="false" data-view="topic">Topic<span class="dot" hidden></span></button>
-        <button class="view-btn" role="tab" aria-selected="false" data-view="map">Map</button>
+        <button class="view-btn active" role="tab" aria-selected="true" data-view="chat">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+          Chat<span class="dot" hidden></span></button>
+        <button class="view-btn" role="tab" aria-selected="false" data-view="topic">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>
+          Topic<span class="dot" hidden></span></button>
+        <button class="view-btn" role="tab" aria-selected="false" data-view="map">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="5" r="2"/><circle cx="20" cy="5" r="2"/><circle cx="4" cy="19" r="2"/><circle cx="20" cy="19" r="2"/><path d="M9.6 10.2L5.5 6.4M14.4 10.2l4.1-3.8M9.6 13.8l-4.1 3.8M14.4 13.8l4.1 3.8"/></svg>
+          Map</button>
       </nav>
       <section class="view view-topic" role="tabpanel" hidden><div class="topic"></div></section>
       <section class="view view-map" role="tabpanel" hidden></section>
@@ -450,7 +459,7 @@
     const fresh = list.filter((h) => Date.now() - h.at < HANDOFF_MS);
     const match = fresh.find((h) => here.includes(h.path));
     if (match) handoffStore.set(fresh.filter((h) => h !== match));
-    return match?.view || null;
+    return match || null;
   }
 
   function setOpen(open, { focus = true } = {}) {
@@ -776,6 +785,7 @@
     renderChatBar();
     render();
     if (state.view === 'topic') renderTopic();
+    applyPendingChat();
   }
 
   function saveConv(c) {
@@ -783,6 +793,7 @@
   }
 
   function openChat(id) {
+    if (!convById(id)) return;
     const cur = conv();
     if (cur) cur.scrollTop = messagesEl.scrollTop;
     state.activeId = id;
@@ -836,7 +847,7 @@
     if (!t) return;
     const usingTopic = !!topicHere();
     const caption = usingTopic
-      ? `Searching all ${t.pages.length} articles in the topic “${esc(t.name)}”`
+      ? `Searching ${t.pages.length === 1 ? 'the 1 article' : `all ${t.pages.length} articles`} in the topic “${esc(t.name)}”`
       : `Searching “${esc(title)}” and the articles it links to`;
     scopeBar.innerHTML = `
       <div class="scope-row">
@@ -848,7 +859,7 @@
           </button>
           <button class="seg-btn scope-topic${usingTopic ? ' on' : ''}" role="radio" aria-checked="${usingTopic}">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>
-            Topic · ${t.pages.length} articles
+            Topic · ${t.pages.length} article${t.pages.length === 1 ? '' : 's'}
           </button>
         </span>
       </div>
@@ -875,23 +886,124 @@
     return new Date(ts).toLocaleDateString();
   };
 
+  // ---------- History across all topics and articles ----------
+
+  async function loadAllChats() {
+    try {
+      state.allChats = (await send({ type: 'conv:all' })) || [];
+      state.savedTopics = await send({ type: 'topics:list' });
+    } catch {
+      state.allChats = [];
+    }
+    if (state.historyOpen && state.view === 'chat') renderHistoryLists();
+  }
+
+  function scopeLabel(scope) {
+    if (scope.startsWith('topic:')) {
+      const t = state.savedTopics.find((x) => x.id === scope.slice(6));
+      return { kind: 'topic', name: t ? t.name : 'Deleted topic' };
+    }
+    const [, l, ...rest] = scope.split(':');
+    const name = rest.join(':');
+    return { kind: 'article', name: l === lang ? name : `${name} (${l})` };
+  }
+
   function renderHistory() {
-    const chats = state.convs
-      .filter((c) => c.messages.length)
-      .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+    if (!messagesEl.querySelector('.history-search')) {
+      messagesEl.innerHTML = `
+        <div class="history">
+          <input class="history-search" type="search" placeholder="Search your chats" aria-label="Search your chats">
+          <div class="history-lists"></div>
+        </div>`;
+      const box = messagesEl.querySelector('.history-search');
+      box.value = state.historyFilter;
+      box.addEventListener('input', () => {
+        state.historyFilter = box.value;
+        renderHistoryLists();
+      });
+      box.addEventListener('keydown', (e) => e.stopPropagation());
+    }
+    renderHistoryLists();
+  }
+
+  function renderHistoryLists() {
+    const listEl = messagesEl.querySelector('.history-lists');
+    if (!listEl) return;
+    const q = state.historyFilter.trim().toLowerCase();
+    const match = (t) => !q || (t || '').toLowerCase().includes(q);
+    const row = ({ scope, id, title: t, questions, updatedAt, here, running }) => `
+      <li class="${here ? 'here' : ''}">
+        <button class="link ${scope ? 'open-saved-chat' : 'open-chat'}" data-id="${id}" ${scope ? `data-scope="${esc(scope)}"` : ''}>${esc(truncate(t || 'Chat', 70))}</button>
+        <span class="desc">${questions} question${questions === 1 ? '' : 's'} · ${ago(updatedAt)}${running ? ' · answering…' : ''}</span>
+        <button class="icon ${scope ? 'delete-saved-chat' : 'delete-chat'}" data-id="${id}" ${scope ? `data-scope="${esc(scope)}"` : ''} title="Delete chat" aria-label="Delete chat">×</button>
+      </li>`;
+
+    const here = state.convs
+      .filter((c) => c.messages.length && match(c.title))
+      .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+      .map((c) => row({ id: c.id, title: c.title, questions: c.messages.filter((m) => m.role === 'user').length, updatedAt: c.updatedAt || c.createdAt, here: c.id === conv()?.id, running: state.request === c }));
+    for (const c of state.allChats) {
+      if (c.scope === state.scope && !convById(c.id) && match(c.title)) here.push(row(c)); // saved in another tab
+    }
     const where = topicHere() ? `in the topic “${esc(topicHere().name)}”` : `about “${esc(title)}”`;
-    messagesEl.innerHTML = chats.length
-      ? `<div class="history"><h4>Chats ${where}</h4><ul>${chats
-          .map((c) => {
-            const questions = c.messages.filter((m) => m.role === 'user').length;
-            return `<li class="${c.id === conv()?.id ? 'here' : ''}">
-              <button class="link open-chat" data-id="${c.id}">${esc(truncate(c.title || 'Chat', 70))}</button>
-              <span class="desc">${questions} question${questions > 1 ? 's' : ''} · ${ago(c.updatedAt || c.createdAt)}${state.request === c ? ' · answering…' : ''}</span>
-              <button class="icon delete-chat" data-id="${c.id}" title="Delete chat" aria-label="Delete chat">×</button>
-            </li>`;
-          })
-          .join('')}</ul></div>`
-      : `<div class="history"><p class="why">No saved chats ${where} yet.</p></div>`;
+
+    const groups = new Map();
+    for (const c of state.allChats) {
+      if (c.scope === state.scope || !match(c.title)) continue;
+      if (!groups.has(c.scope)) groups.set(c.scope, []);
+      groups.get(c.scope).push(c);
+    }
+    const others = [...groups]
+      .map(([scope, chats]) => {
+        const label = scopeLabel(scope);
+        const icon = label.kind === 'topic' ? GRAPH_ICON : '<span aria-hidden="true">📄</span>';
+        return `<div class="history-group">
+          <div class="history-scope">${icon}<span>${esc(label.name)}</span><span class="tag">${label.kind}</span></div>
+          <ul>${chats.map((c) => row(c)).join('')}</ul>
+        </div>`;
+      })
+      .join('');
+
+    listEl.innerHTML = `
+      <h4>Chats ${where}</h4>
+      ${here.length ? `<ul>${here.join('')}</ul>` : `<p class="why">${q ? 'No matching chats here.' : 'No saved chats here yet.'}</p>`}
+      ${others ? `<h4>Other topics and articles</h4>${others}` : q && !here.length ? '' : ''}`;
+  }
+
+  function applyPendingChat() {
+    if (!state.pendingChat) return;
+    const c = convById(state.pendingChat);
+    state.pendingChat = null;
+    if (c) openChat(c.id);
+  }
+
+  // Opens a saved chat from anywhere: topic chats right here, article chats on their article.
+  async function openSavedChat(scope, id) {
+    if (scope === state.scope) {
+      if (!convById(id)) {
+        const saved = (await send({ type: 'conv:list', scope }).catch(() => [])) || [];
+        state.convs.push(...saved.filter((c) => !convById(c.id)));
+      }
+      return openChat(id);
+    }
+    state.pendingChat = id;
+    if (scope.startsWith('topic:')) {
+      state.useTopicHere = true;
+      await topicAction(() => send({ type: 'topics:setActive', id: scope.slice(6) }));
+      return;
+    }
+    const [, l, ...rest] = scope.split(':');
+    const t = rest.join(':');
+    if (l === lang && t === title) {
+      await setScope(false);
+      applyPendingChat();
+      return;
+    }
+    const url = `https://${l}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
+    const list = (await handoffStore.get()).filter((h) => Date.now() - h.at < HANDOFF_MS).slice(-4);
+    list.push({ path: pathOf(url), view: 'chat', chat: id, scope, at: Date.now() });
+    await handoffStore.set(list);
+    location.href = url;
   }
 
   const W_ADDED = 'Added by you';
@@ -1236,8 +1348,13 @@
     else if (t.matches('.followup')) askSuggested(t.dataset.q);
     else if (t.matches('.history-toggle')) {
       state.historyOpen = !state.historyOpen;
+      state.historyFilter = '';
       renderChatBar();
       render(true);
+      if (state.historyOpen) loadAllChats();
+    } else if (t.matches('.open-saved-chat')) openSavedChat(t.dataset.scope, t.dataset.id);
+    else if (t.matches('.delete-saved-chat')) {
+      if (confirm("Delete this chat? This can't be undone.")) send({ type: 'conv:delete', scope: t.dataset.scope, id: t.dataset.id }).then(loadAllChats, () => {});
     } else if (t.matches('.new-chat')) newChat();
     else if (t.matches('.open-chat')) openChat(t.dataset.id);
     else if (t.matches('.delete-chat')) {
@@ -1316,8 +1433,16 @@
     if (view === 'topic' || view === 'map') setView(view);
     setOpen(true, { focus: false });
   };
-  if (recall('open') === '1') restore(recall('view'));
-  else if (recall('open') === null) takeHandoff().then((view) => view && restore(view));
+  const sessionOpen = recall('open');
+  takeHandoff().then((h) => {
+    if (h?.chat) {
+      state.pendingChat = h.chat;
+      if (h.scope?.startsWith('page:')) state.useTopicHere = false;
+      refreshTopic(); // load that chat's scope; the chat opens once it's loaded
+    }
+    if (h && sessionOpen !== '0') restore(h.view);
+    else if (sessionOpen === '1') restore(recall('view'));
+  });
 
   for (const type of ['pointerdown', 'contextmenu']) {
     document.addEventListener(
