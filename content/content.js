@@ -386,7 +386,11 @@
     host.dataset.theme = dark ? 'dark' : 'light';
   }
   syncTheme();
-  new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(() => {
+    syncTheme();
+    // Wikipedia's own scripts may re-pin the column after the panel opened (e.g. on page load).
+    if (state.open && PINNED_RIGHT.some(([pinned]) => document.documentElement.classList.contains(pinned))) unpinWikipediaColumn(true);
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
 
   // Vector 2022's pinned right column (Appearance, Tools) moves into its dropdown menus while the panel is open,
@@ -399,8 +403,11 @@
   function unpinWikipediaColumn(open) {
     const cls = document.documentElement.classList;
     if (open) {
-      unpinned = PINNED_RIGHT.filter(([pinned]) => cls.contains(pinned));
-      for (const [pinned, hidden] of unpinned) cls.replace(pinned, hidden);
+      for (const pair of PINNED_RIGHT) {
+        if (!cls.contains(pair[0])) continue;
+        cls.replace(pair[0], pair[1]);
+        if (!unpinned.includes(pair)) unpinned.push(pair);
+      }
     } else {
       for (const [pinned, hidden] of unpinned) cls.replace(hidden, pinned);
       unpinned = [];
@@ -583,7 +590,11 @@
   // ---------- Topic view ----------
 
   function renderTopic() {
-    input.placeholder = state.quote ? 'Ask about the selected text…' : topicHere() ? 'Ask about this topic…' : 'Ask about this article…';
+    input.placeholder = state.quote
+      ? 'Ask about the selected text…'
+      : topicHere()
+        ? `Ask across all ${topicHere().pages.length} articles…`
+        : 'Ask about this article…';
     renderNav();
     if (state.view !== 'topic') return;
     const t = state.topic;
@@ -879,7 +890,7 @@
     renderScopeBar();
     const c = conv();
     chatBar.innerHTML = `
-      <span class="chat-title" title="${esc(c?.title || '')}">${esc(truncate(c?.title || 'New chat', 52))}</span>
+      <span class="chat-title" title="${esc(c?.title || '')}">${esc(truncate(c?.title || (topicHere() ? 'New topic chat' : 'New chat'), 52))}</span>
       <button class="link new-chat">New chat</button>`;
     renderNav();
   }
@@ -1021,14 +1032,37 @@
   ];
 
   function topicSuggestions(t) {
-    const [a, b] = t.facets.filter((f) => f.name !== W_ADDED);
+    const [a, b, c] = t.facets.filter((f) => f.name !== W_ADDED && t.pages.some((p) => p.facet === f.name));
     return [
       `Give me an overview of ${t.name} and its main themes`,
       a && b ? `How is “${a.name}” connected to “${b.name}”?` : 'How are the articles in this topic connected?',
+      c ? `What should I know about “${c.name}”?` : null,
       title === t.seed || title === t.name
         ? `Which articles in ${t.name} should I read first, and why?`
         : `How does ${title} fit into ${t.name}?`,
-    ];
+    ].filter(Boolean);
+  }
+
+  // What the empty chat is about: the whole topic, or this article.
+  function topicCard(t) {
+    const themes = t.facets
+      .map((f) => ({ name: f.name, n: t.pages.filter((p) => p.facet === f.name).length }))
+      .filter((f) => f.n);
+    return `
+      <div class="scope-card topic">
+        <div class="scope-card-head">${GRAPH_ICON}<div><div class="scope-kind">Topic chat</div><div class="scope-name">${esc(t.name)}</div></div></div>
+        <p>Ask questions that span the whole topic: answers draw on all ${t.pages.length} articles, not just the one you're reading.</p>
+        <div class="theme-chips">${themes.map((f) => `<span class="chip">${esc(f.name)} <span class="n">${f.n}</span></span>`).join('')}</div>
+        <div class="scope-card-links"><button class="link go-topic">See all articles</button><button class="link go-map">Open the map</button></div>
+      </div>`;
+  }
+
+  function articleCard() {
+    return `
+      <div class="scope-card">
+        <div class="scope-card-head"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg><div><div class="scope-kind">Article chat</div><div class="scope-name">${esc(title)}</div></div></div>
+        <p>Answers use this article and the articles it links to. Select text in the article to ask about a passage.</p>
+      </div>`;
   }
 
   function render(restoreScroll = false) {
@@ -1036,13 +1070,11 @@
     if (!c || state.view !== 'chat') return;
     if (!c.messages.length) {
       const t = topicHere();
-      const intro = t
-        ? `Ask anything about <strong>${esc(t.name)}</strong>: answers search all ${t.pages.length} articles in the topic.`
-        : `Ask anything about <strong>${esc(title)}</strong> or the articles it links to. Select text in the article to ask about a passage.`;
       const open = unexplored().reduce((n, g) => n + g.items.length, 0);
       messagesEl.innerHTML = `
         <div class="empty">
-          <p>${intro}</p>
+          ${t ? topicCard(t) : articleCard()}
+          <div class="fu-label">Try asking</div>
           ${(t ? topicSuggestions(t) : SUGGESTIONS).map((q) => `<button class="suggestion">${esc(q)}</button>`).join('')}
           ${state.topic || state.building ? '' : '<p class="why">Want to explore this subject across many articles? <button class="link build-topic">Build a topic cluster</button></p>'}
           ${open ? `<p class="why">${open} suggested question${open > 1 ? 's' : ''} from earlier chats are waiting in <button class="link go-topic">Topic › Questions to explore</button>.</p>` : ''}
