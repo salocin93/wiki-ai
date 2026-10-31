@@ -84,7 +84,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'getSettings') {
-    W.settings.load().then((s) => sendResponse({ model: s.model, fallbackModel: s.fallbackModel, hasKey: !!s.apiKey }));
+    W.settings.load().then((s) => sendResponse({ model: s.model, fallbackModel: s.fallbackModel, hasKey: !!s.apiKey, answerLanguage: s.answerLanguage }));
     return true;
   }
 });

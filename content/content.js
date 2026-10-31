@@ -524,6 +524,7 @@
   }
 
   async function refreshTopic() {
+    await loadLanguage();
     try {
       state.topic = await send({ type: 'topics:active' });
       state.savedTopics = await send({ type: 'topics:list' });
@@ -1028,21 +1029,92 @@
   }
 
   const W_ADDED = 'Added by you';
-  const SUGGESTIONS = [
-    'Summarize this article in a few bullet points',
-    'Explain the section I am reading',
-    'Which linked articles should I read next, and why?',
-  ];
+  // Starter questions in the answer language (Settings › Answer language); English for other languages.
+  const PHRASES = {
+    en: {
+      summary: 'Summarize this article in a few bullet points',
+      section: 'Explain the section I am reading',
+      readNext: 'Which linked articles should I read next, and why?',
+      overview: (t) => `Give me an overview of ${t} and its main themes`,
+      connect: (a, b) => `How is “${a}” connected to “${b}”?`,
+      connected: 'How are the articles in this topic connected?',
+      theme: (c) => `What should I know about “${c}”?`,
+      readFirst: (t) => `Which articles in ${t} should I read first, and why?`,
+      fit: (x, t) => `How does ${x} fit into ${t}?`,
+    },
+    de: {
+      summary: 'Fasse diesen Artikel in ein paar Stichpunkten zusammen',
+      section: 'Erkläre den Abschnitt, den ich gerade lese',
+      readNext: 'Welche verlinkten Artikel sollte ich als Nächstes lesen, und warum?',
+      overview: (t) => `Gib mir einen Überblick über ${t} und die wichtigsten Themen`,
+      connect: (a, b) => `Wie hängt „${a}“ mit „${b}“ zusammen?`,
+      connected: 'Wie hängen die Artikel dieses Themas zusammen?',
+      theme: (c) => `Was sollte ich über „${c}“ wissen?`,
+      readFirst: (t) => `Welche Artikel zu ${t} sollte ich zuerst lesen, und warum?`,
+      fit: (x, t) => `Wie passt ${x} in ${t}?`,
+    },
+    fr: {
+      summary: 'Résume cet article en quelques points',
+      section: 'Explique la section que je lis',
+      readNext: 'Quels articles liés devrais-je lire ensuite, et pourquoi ?',
+      overview: (t) => `Donne-moi une vue d'ensemble de ${t} et de ses thèmes principaux`,
+      connect: (a, b) => `Quel est le lien entre « ${a} » et « ${b} » ?`,
+      connected: 'Quels liens existent entre les articles de ce sujet ?',
+      theme: (c) => `Que faut-il savoir sur « ${c} » ?`,
+      readFirst: (t) => `Quels articles sur ${t} devrais-je lire en premier, et pourquoi ?`,
+      fit: (x, t) => `Quelle place occupe ${x} dans ${t} ?`,
+    },
+    es: {
+      summary: 'Resume este artículo en unos pocos puntos',
+      section: 'Explica la sección que estoy leyendo',
+      readNext: '¿Qué artículos enlazados debería leer a continuación y por qué?',
+      overview: (t) => `Dame una visión general de ${t} y sus temas principales`,
+      connect: (a, b) => `¿Qué relación hay entre «${a}» y «${b}»?`,
+      connected: '¿Cómo se relacionan los artículos de este tema?',
+      theme: (c) => `¿Qué debería saber sobre «${c}»?`,
+      readFirst: (t) => `¿Qué artículos sobre ${t} debería leer primero y por qué?`,
+      fit: (x, t) => `¿Qué papel tiene ${x} en ${t}?`,
+    },
+    it: {
+      summary: 'Riassumi questo articolo in pochi punti',
+      section: 'Spiega la sezione che sto leggendo',
+      readNext: 'Quali articoli collegati dovrei leggere dopo, e perché?',
+      overview: (t) => `Dammi una panoramica di ${t} e dei suoi temi principali`,
+      connect: (a, b) => `Che legame c'è tra «${a}» e «${b}»?`,
+      connected: 'Come sono collegati gli articoli di questo argomento?',
+      theme: (c) => `Cosa dovrei sapere su «${c}»?`,
+      readFirst: (t) => `Quali articoli su ${t} dovrei leggere per primi, e perché?`,
+      fit: (x, t) => `Che ruolo ha ${x} in ${t}?`,
+    },
+  };
+
+  // The answer language for this page: the setting, resolved against the article's language.
+  // "Same as my question" uses the browser's language for the starter questions.
+  function phrases() {
+    const choice = state.answerLanguage || 'article';
+    const code = choice === 'article' ? lang : choice === 'question' ? (navigator.language || 'en').slice(0, 2) : choice;
+    return PHRASES[code] || PHRASES.en;
+  }
+
+  async function loadLanguage() {
+    try {
+      state.answerLanguage = (await chrome.runtime.sendMessage({ type: 'getSettings' }))?.answerLanguage || 'article';
+    } catch {}
+  }
+
+  const starterSuggestions = () => {
+    const p = phrases();
+    return [p.summary, p.section, p.readNext];
+  };
 
   function topicSuggestions(t) {
-    const [a, b, c] = t.facets.filter((f) => f.name !== W_ADDED && t.pages.some((p) => p.facet === f.name));
+    const p = phrases();
+    const [a, b, c] = t.facets.filter((f) => f.name !== W_ADDED && t.pages.some((x) => x.facet === f.name));
     return [
-      `Give me an overview of ${t.name} and its main themes`,
-      a && b ? `How is “${a.name}” connected to “${b.name}”?` : 'How are the articles in this topic connected?',
-      c ? `What should I know about “${c.name}”?` : null,
-      title === t.seed || title === t.name
-        ? `Which articles in ${t.name} should I read first, and why?`
-        : `How does ${title} fit into ${t.name}?`,
+      p.overview(t.name),
+      a && b ? p.connect(a.name, b.name) : p.connected,
+      c ? p.theme(c.name) : null,
+      title === t.seed || title === t.name ? p.readFirst(t.name) : p.fit(title, t.name),
     ].filter(Boolean);
   }
 
@@ -1078,7 +1150,7 @@
         <div class="empty">
           ${t ? topicCard(t) : articleCard()}
           <div class="fu-label">Try asking</div>
-          ${(t ? topicSuggestions(t) : SUGGESTIONS).map((q) => `<button class="suggestion">${esc(q)}</button>`).join('')}
+          ${(t ? topicSuggestions(t) : starterSuggestions()).map((q) => `<button class="suggestion">${esc(q)}</button>`).join('')}
           ${state.topic || state.building ? '' : '<p class="why">Want to explore this subject across many articles? <button class="link build-topic">Build a topic cluster</button></p>'}
           ${open ? `<p class="why">${open} suggested question${open > 1 ? 's' : ''} from earlier chats are waiting in <button class="link go-topic">Topic › Questions to explore</button>.</p>` : ''}
         </div>`;

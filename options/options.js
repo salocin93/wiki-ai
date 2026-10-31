@@ -13,6 +13,27 @@ const HELP = {
   custom: 'Any endpoint that speaks the OpenAI chat completions API with streaming and tool calling. Enter its address under Advanced connection.',
 };
 const NUMBER_FIELDS = ['maxSteps', 'maxAnswerTokens', 'contextTokens'];
+const LANGUAGES = ['en', 'de', 'fr', 'es', 'it', 'nl', 'pt', 'pl', 'sv', 'da', 'nb', 'fi', 'cs', 'ru', 'uk', 'tr', 'ja', 'zh', 'ko', 'ar'];
+
+// Each language in its own name ("Deutsch"), with the English name alongside.
+function languageOptions() {
+  const own = (code) => {
+    try {
+      return new Intl.DisplayNames([code], { type: 'language' }).of(code);
+    } catch {
+      return code;
+    }
+  };
+  return [
+    `<option value="article">Same as the Wikipedia article</option>`,
+    `<option value="question">Same as my question</option>`,
+    ...LANGUAGES.map((c) => {
+      const name = own(c);
+      const english = W.settings.languageName(c);
+      return `<option value="${c}">${esc(name)}${name.toLowerCase() === english.toLowerCase() ? '' : ` · ${esc(english)}`}</option>`;
+    }),
+  ].join('');
+}
 const OTHER = '__other__';
 
 let settings = null;
@@ -28,6 +49,7 @@ function collect() {
   out.model = $('model').value === OTHER ? settings.model : $('model').value;
   out.fallbackModel = $('fallbackModel').value === OTHER ? settings.fallbackModel : $('fallbackModel').value;
   out.disableThinking = $('disableThinking').checked;
+  out.answerLanguage = $('answerLanguage').value;
   for (const id of NUMBER_FIELDS) out[id] = Number($(id).value) || 0;
   return out;
 }
@@ -207,7 +229,7 @@ $('toggleKey').addEventListener('click', () => {
   $('toggleKey').textContent = hidden ? 'Hide' : 'Show';
 });
 $('test').addEventListener('click', () => refreshModels({ probe: true }));
-for (const id of ['disableThinking', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
+for (const id of ['disableThinking', 'answerLanguage', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
 
 // ---------- Storage ----------
 
@@ -230,6 +252,8 @@ $('clearCache').addEventListener('click', async () => {
   $('apiKey').value = settings.apiKey || '';
   $('baseUrl').value = settings.baseUrl || '';
   $('disableThinking').checked = settings.disableThinking;
+  $('answerLanguage').innerHTML = languageOptions();
+  $('answerLanguage').value = settings.answerLanguage || 'article';
   for (const id of NUMBER_FIELDS) $(id).value = settings[id];
   renderProviders();
   fillModels();

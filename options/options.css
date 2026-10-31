@@ -55,6 +55,7 @@ h2 { font-size: 15px; margin: 0 0 14px; }
 .help a { color: var(--accent); }
 
 .field { margin-top: 16px; }
+.field.first { margin: 0 0 18px; }
 label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 5px; }
 .hint { color: var(--muted); font-size: 12px; margin: 5px 0 0; font-weight: 400; }
 .hint.block { display: block; margin-top: 2px; }

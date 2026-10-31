@@ -9,11 +9,11 @@ for (const f of ['settings', 'cache', 'bm25', 'wiki', 'llm', 'links', 'agent']) 
 }
 const W = globalThis.WikiAI;
 const [title = 'Ada Lovelace', question = 'Who was her mother and what did she do?', model] = process.argv.slice(2);
-const lang = 'en';
+const lang = process.env.WIKI_LANG || 'en'; // e.g. WIKI_LANG=de for German Wikipedia
 
 const links = await pageLinks(lang, title);
 
-const settings = { ...W.settings.DEFAULTS, apiKey: process.env.LOCAL_LLM_API_KEY || process.env.LITELLM_MASTER_KEY, ...(model ? { model } : {}) };
+const settings = { ...W.settings.DEFAULTS, apiKey: process.env.LOCAL_LLM_API_KEY || process.env.LITELLM_MASTER_KEY, ...(model ? { model } : {}), ...(process.env.ANSWER_LANG ? { answerLanguage: process.env.ANSWER_LANG } : {}) };
 const sources = [];
 const t0 = Date.now();
 const ts = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
