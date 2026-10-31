@@ -318,3 +318,5 @@ button.primary { padding: 8px 14px; border-radius: 8px; border: none; background
 .seg-btn + .seg-btn { border-left: 1px solid var(--border); }
 .seg-btn.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .seg-meta { font-weight: 400; opacity: 0.8; }
+.map-empty .topic { padding: 0; }
+.map-empty .dot { display: inline-block; vertical-align: middle; margin-right: 4px; }

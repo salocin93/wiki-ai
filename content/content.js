@@ -447,6 +447,7 @@
       state.savedTopics = await send({ type: 'topics:list' });
     } catch {}
     renderTopic();
+    if (state.view === 'map') renderMapView();
     if (currentScope() !== state.scope) await loadConversations();
     else {
       renderChatBar();
@@ -663,7 +664,12 @@
     unmountMap?.();
     unmountMap = null;
     if (!state.topic) {
-      mapView.innerHTML = `<div class="map-empty"><p>The map shows a topic cluster's articles and how they link to each other.</p><button class="primary build-topic">Build topic cluster</button></div>`;
+      mapView.innerHTML = `
+        <div class="map-empty">
+          <p>The map shows a topic cluster's articles and how they link to each other.</p>
+          ${state.building ? `<p><span class="dot"></span> ${esc(state.building)}</p>` : '<button class="primary build-topic">Build a topic from this article</button>'}
+          <div class="topic">${savedTopicsSection()}</div>
+        </div>`;
       return;
     }
     mapView.innerHTML = '<div class="map-host"></div>';
@@ -980,7 +986,7 @@
         state.building = null;
         state.topic = msg.topic;
         state.useTopicHere = null;
-        refreshTopic().then(() => state.view === 'map' && renderMapView());
+        refreshTopic();
       }
       if (msg.type === 'topicError') {
         state.building = null;
@@ -988,6 +994,7 @@
       }
       renderTopic();
       renderScopeBar();
+      if (state.view === 'map' && !state.topic) renderMapView();
       render();
       return;
     }
