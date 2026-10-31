@@ -20,12 +20,18 @@
     quote: null, // {text, section}
     port: null,
     links: null,
+    topic: null, // active topic cluster
+    topicOpen: false, // drawer expanded
+    topicView: 'map', // 'map' or 'saved'
+    savedTopics: [],
+    building: null, // progress text while a cluster is being built
+    topicError: null,
   };
 
   // ---------- Page reading helpers ----------
 
   const NON_ARTICLE_NS = /^(File|Image|Help|Special|Wikipedia|Template|Category|Portal|Talk|Module|Draft|User|MediaWiki|Book|Media|WP|Template talk|User talk)(:)/i;
-  const SKIP_LINK_AREAS = '.navbox, .reflist, .references, .mw-references-wrap, sup.reference, .mw-editsection, .sistersitebox, .hatnote, .shortdescription';
+  const SKIP_LINK_AREAS = '.reflist, .references, .mw-references-wrap, sup.reference, .mw-editsection, .sistersitebox, .shortdescription, .navbar';
 
   const headingText = (h) => (h.querySelector('.mw-headline')?.textContent || h.textContent).replace(/\[edit\]$/, '').trim();
   const headings = () => [...article.querySelectorAll('h2, h3, h4')];
@@ -65,6 +71,31 @@
     return text.slice(start, end);
   }
 
+  // Where a link sits says a lot about how related it is: navigation boxes list a topic's members,
+  // infoboxes hold key facts, and "Main article:" notes point to a section's own article.
+  function linkSignal(el) {
+    const nav = el.closest('.navbox');
+    if (nav) {
+      let outer = nav;
+      while (outer.parentElement?.closest('.navbox')) outer = outer.parentElement.closest('.navbox');
+      const box = cleanText(outer.querySelector('.navbox-title') || outer).slice(0, 80);
+      const group = el.closest('td.navbox-list')?.previousElementSibling;
+      const label = group?.matches('th.navbox-group') ? cleanText(group) : '';
+      return { kind: 'navbox', box, context: `Navigation box "${box}"${label ? ` › ${label}` : ''}` };
+    }
+    const row = el.closest('.infobox tr');
+    if (row) {
+      const th = row.querySelector('th');
+      return { kind: 'infobox', context: `Infobox: ${th ? cleanText(th) + ': ' : ''}${cleanText(row.querySelector('td') || row).slice(0, 160)}` };
+    }
+    const hat = el.closest('.hatnote');
+    if (hat) {
+      const text = cleanText(hat);
+      return { kind: /^(main articles?|further information)\b/i.test(text) ? 'main' : 'hatnote', context: text.slice(0, 200) };
+    }
+    return null;
+  }
+
   function collectLinks() {
     if (state.links) return state.links;
     const map = new Map();
@@ -80,16 +111,40 @@
       if (!m || !url.hostname.endsWith('wikipedia.org') || url.search) continue; // skips red links (?action=edit)
       const target = decodeURIComponent(m[1]).replace(/_/g, ' ');
       if (NON_ARTICLE_NS.test(target) || target === title) continue;
-      const entry = map.get(target) || { title: target, count: 0, contexts: [], sections: [], anchors: [] };
+      const entry = map.get(target) || { title: target, count: 0, contexts: [], sections: [], anchors: [], signals: new Set(), navboxes: new Set() };
       entry.count++;
       const anchor = el.textContent.trim();
       if (anchor && anchor !== target && !entry.anchors.includes(anchor) && entry.anchors.length < 3) entry.anchors.push(anchor);
-      if (entry.contexts.length < 2) entry.contexts.push(contextSentence(el));
-      if (!entry.sections.includes(section) && entry.sections.length < 3) entry.sections.push(section);
+      const signal = linkSignal(el);
+      if (signal) {
+        entry.signals.add(signal.kind);
+        if (signal.box) entry.navboxes.add(signal.box);
+      }
+      if (entry.contexts.length < 2) entry.contexts.push(signal?.context || contextSentence(el));
+      if (signal?.kind !== 'navbox' && !entry.sections.includes(section) && entry.sections.length < 3) entry.sections.push(section);
       map.set(target, entry);
     }
-    state.links = [...map.values()].map((e) => ({ title: e.title, anchors: e.anchors, count: e.count, context: e.contexts.join(' … '), sections: e.sections }));
+    state.links = [...map.values()].map((e) => ({
+      title: e.title,
+      anchors: e.anchors,
+      count: e.count,
+      context: e.contexts.join(' … '),
+      sections: e.sections,
+      signals: [...e.signals],
+      navboxes: [...e.navboxes],
+    }));
     return state.links;
+  }
+
+  function pageInfo() {
+    return {
+      lang,
+      title,
+      url: canonical,
+      links: collectLinks(),
+      categories: [...document.querySelectorAll('#mw-normal-catlinks li a')].map((a) => a.textContent.trim()),
+      visibleSection: visibleSection(),
+    };
   }
 
   // ---------- Highlighting a cited passage in the page ----------
@@ -212,6 +267,7 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </header>
+      <div class="topic"></div>
       <div class="messages" role="log" aria-live="polite"></div>
       <div class="preview" hidden></div>
       <form class="composer">
@@ -249,6 +305,7 @@
   const quoteEl = $('.quote');
   const previewEl = $('.preview');
   const askSelBtn = $('.ask-selection');
+  const topicEl = $('.topic');
   $('.sub').textContent = title;
 
   function syncTheme() {
@@ -288,22 +345,155 @@
     unpinWikipediaColumn(open);
     if (open) {
       render();
+      refreshTopic();
       setTimeout(() => input.focus(), 0);
     }
   }
 
+  // ---------- Topic clusters ----------
+
+  async function send(msg) {
+    const res = await chrome.runtime.sendMessage(msg);
+    if (res?.error) throw new Error(res.error);
+    return res?.result;
+  }
+
+  async function refreshTopic() {
+    try {
+      state.topic = await send({ type: 'topics:active' });
+      state.savedTopics = await send({ type: 'topics:list' });
+    } catch {}
+    renderTopic();
+    render();
+  }
+
+  const inTopic = () => !!state.topic?.pages.some((p) => p.title === title);
+  const wikiUrl = (t) => `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
+
+  function renderTopic() {
+    const esc = W.markdown.esc;
+    const t = state.topic;
+    input.placeholder = state.quote ? 'Ask about the selected text…' : t ? 'Ask about this topic…' : 'Ask about this article…';
+    if (state.building) {
+      topicEl.innerHTML = `<div class="topic-bar building"><span class="dot"></span><span class="topic-status">${esc(state.building)}</span><button class="link stop-topic">Stop</button></div>`;
+      return;
+    }
+    const error = state.topicError ? `<div class="topic-error">${esc(state.topicError)}</div>` : '';
+    if (!t) {
+      topicEl.innerHTML = `
+        <div class="topic-bar empty">
+          <span class="topic-hint">Questions use this article and its links.</span>
+          <button class="link build-topic" title="Let the AI group this article's most relevant linked articles into themes">Build topic cluster</button>
+          ${state.savedTopics.length ? `<button class="link show-saved">Saved (${state.savedTopics.length})</button>` : ''}
+        </div>${error}${state.topicOpen && state.topicView === 'saved' ? savedList() : ''}`;
+      return;
+    }
+    const chevron = `<svg class="chev${state.topicOpen ? ' open' : ''}" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
+    topicEl.innerHTML = `
+      <button class="topic-bar active toggle-topic" aria-expanded="${state.topicOpen}">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>
+        <span class="topic-name">${esc(t.name)}</span>
+        <span class="topic-meta">${t.pages.length} articles · ${t.facets.length} themes</span>
+        ${chevron}
+      </button>${error}
+      ${state.topicOpen ? (state.topicView === 'saved' ? savedList() : topicMap(t)) : ''}`;
+  }
+
+  function topicMap(t) {
+    const esc = W.markdown.esc;
+    const pageRow = (p) => `
+      <li class="${p.title === title ? 'here' : ''}">
+        <a href="${wikiUrl(p.title)}" title="${esc(p.summary || p.description || '')}">${esc(p.title)}</a>
+        ${p.title === title ? '<span class="tag">you are here</span>' : ''}
+        ${p.description ? `<span class="desc">${esc(p.description)}</span>` : ''}
+        ${p.seed ? '' : `<button class="icon remove-page" data-title="${esc(p.title)}" title="Remove from topic" aria-label="Remove ${esc(p.title)} from topic">×</button>`}
+      </li>`;
+    const seed = t.pages.filter((p) => p.seed);
+    const facets = t.facets
+      .map((f) => {
+        const pages = t.pages.filter((p) => p.facet === f.name);
+        if (!pages.length) return '';
+        return `<section class="facet"><h5>${esc(f.name)}</h5>${f.why ? `<p class="why">${esc(f.why)}</p>` : ''}<ul>${pages.map(pageRow).join('')}</ul></section>`;
+      })
+      .join('');
+    return `
+      <div class="topic-drawer">
+        ${inTopic() ? '' : `<div class="notice">This article isn't in the topic. <button class="link add-page">Add it</button></div>`}
+        ${seed.length ? `<ul class="seed">${seed.map(pageRow).join('')}</ul>` : ''}
+        ${facets}
+        <div class="drawer-actions">
+          <button class="link rebuild-topic" title="Build a new cluster starting from this article">Rebuild from this article</button>
+          <button class="link show-saved">Saved topics</button>
+          <button class="link leave-topic">Close topic</button>
+        </div>
+      </div>`;
+  }
+
+  function savedList() {
+    const esc = W.markdown.esc;
+    const rows = state.savedTopics
+      .map(
+        (t) => `
+        <li class="${t.id === state.topic?.id ? 'here' : ''}">
+          <button class="link open-topic" data-id="${t.id}">${esc(t.name)}</button>
+          <span class="desc">${t.pages} articles · ${t.facets} themes · from “${esc(t.seed)}”</span>
+          <button class="icon delete-topic" data-id="${t.id}" title="Delete topic" aria-label="Delete ${esc(t.name)}">×</button>
+        </li>`
+      )
+      .join('');
+    return `
+      <div class="topic-drawer">
+        <h5>Saved topics</h5>
+        ${rows ? `<ul>${rows}</ul>` : '<p class="why">No saved topics yet.</p>'}
+        <div class="drawer-actions">${state.topic ? '<button class="link back-to-map">Back to topic map</button>' : '<button class="link close-saved">Close</button>'}</div>
+      </div>`;
+  }
+
+  function buildTopic() {
+    state.building = 'Starting';
+    state.topicError = null;
+    state.topicOpen = false;
+    renderTopic();
+    connect().postMessage({ type: 'buildTopic', page: pageInfo() });
+  }
+
+  async function topicAction(fn) {
+    state.topicError = null;
+    try {
+      await fn();
+    } catch (e) {
+      state.topicError = e.message;
+    }
+    await refreshTopic();
+  }
+
+  const W_ADDED = 'Added by you';
   const SUGGESTIONS = [
     'Summarize this article in a few bullet points',
     'Explain the section I am reading',
     'Which linked articles should I read next, and why?',
   ];
 
+  function topicSuggestions(t) {
+    const [a, b] = t.facets.filter((f) => f.name !== W_ADDED);
+    return [
+      `Give me an overview of ${t.name} and its main themes`,
+      a && b ? `How is “${a.name}” connected to “${b.name}”?` : 'How are the articles in this topic connected?',
+      `How does ${title} fit into ${t.name}?`,
+    ];
+  }
+
   function render() {
     if (!state.messages.length) {
+      const esc = W.markdown.esc;
+      const t = state.topic;
+      const intro = t
+        ? `Ask anything about <strong>${esc(t.name)}</strong>: answers search all ${t.pages.length} articles in the topic.`
+        : `Ask anything about <strong>${esc(title)}</strong> or the articles it links to. Select text in the article to ask about a passage.`;
       messagesEl.innerHTML = `
         <div class="empty">
-          <p>Ask anything about <strong>${W.markdown.esc(title)}</strong> or the articles it links to. Select text in the article to ask about a passage.</p>
-          ${SUGGESTIONS.map((s) => `<button class="suggestion">${W.markdown.esc(s)}</button>`).join('')}
+          <p>${intro}</p>
+          ${(t ? topicSuggestions(t) : SUGGESTIONS).map((s) => `<button class="suggestion">${esc(s)}</button>`).join('')}
         </div>`;
       return;
     }
@@ -385,8 +575,8 @@
     quoteEl.hidden = !quote;
     if (quote) {
       quoteEl.innerHTML = `<span class="label">Selected text${quote.section ? ` · ${W.markdown.esc(quote.section)}` : ''}</span><span class="text">${W.markdown.esc(quote.text.slice(0, 200))}${quote.text.length > 200 ? '…' : ''}</span><button type="button" class="icon clear-quote" aria-label="Remove selection">×</button>`;
-      input.placeholder = 'Ask about the selected text…';
-    } else input.placeholder = 'Ask about this article…';
+    }
+    renderTopic();
   }
 
   function setBusy(busy) {
@@ -417,6 +607,23 @@
   }
 
   function onAgentMessage(msg) {
+    if (msg.type === 'topicProgress' || msg.type === 'topicBuilt' || msg.type === 'topicError') {
+      if (msg.type === 'topicProgress') state.building = msg.text;
+      if (msg.type === 'topicBuilt') {
+        state.building = null;
+        state.topic = msg.topic;
+        state.topicOpen = true;
+        state.topicView = 'map';
+        refreshTopic();
+      }
+      if (msg.type === 'topicError') {
+        state.building = null;
+        state.topicError = msg.message;
+      }
+      renderTopic();
+      render();
+      return;
+    }
     const m = state.messages[state.messages.length - 1];
     if (!m || m.role !== 'assistant') return;
     switch (msg.type) {
@@ -469,7 +676,8 @@
       question,
       history,
       sources: state.sources,
-      page: { lang, title, url: canonical, links: collectLinks(), visibleSection: visibleSection(), selection: quote },
+      page: { ...pageInfo(), selection: quote },
+      topicId: state.topic?.id || null,
     });
   }
 
@@ -545,6 +753,34 @@
     else if (t.matches('.close-preview')) previewEl.hidden = true;
     else if (t.matches('.show-in-page')) highlightSource(state.sources[Number(previewEl.dataset.n) - 1]);
     else if (t.matches('.open-settings')) chrome.runtime.sendMessage({ type: 'openOptions' });
+    else if (t.matches('.build-topic, .rebuild-topic')) buildTopic();
+    else if (t.matches('.stop-topic')) state.port?.postMessage({ type: 'stopTopic' });
+    else if (t.matches('.toggle-topic')) {
+      state.topicOpen = !state.topicOpen;
+      state.topicView = 'map';
+      renderTopic();
+    } else if (t.matches('.show-saved')) {
+      state.topicOpen = true;
+      state.topicView = 'saved';
+      renderTopic();
+    } else if (t.matches('.back-to-map')) {
+      state.topicView = 'map';
+      renderTopic();
+    } else if (t.matches('.close-saved')) {
+      state.topicOpen = false;
+      renderTopic();
+    } else if (t.matches('.add-page')) topicAction(() => send({ type: 'topics:addPage', id: state.topic.id, title }));
+    else if (t.matches('.remove-page')) topicAction(() => send({ type: 'topics:removePage', id: state.topic.id, title: t.dataset.title }));
+    else if (t.matches('.leave-topic')) {
+      state.topicOpen = false;
+      topicAction(() => send({ type: 'topics:setActive', id: null }));
+    } else if (t.matches('.open-topic')) {
+      state.topicView = 'map';
+      topicAction(() => send({ type: 'topics:setActive', id: t.dataset.id }));
+    } else if (t.matches('.delete-topic')) {
+      const name = state.savedTopics.find((x) => x.id === t.dataset.id)?.name;
+      if (confirm(`Delete the topic “${name}”? This can't be undone.`)) topicAction(() => send({ type: 'topics:delete', id: t.dataset.id }));
+    }
   });
 
   // "Ask about this" button next to a text selection in the article.
@@ -591,4 +827,5 @@
   });
 
   render();
+  refreshTopic();
 })();

@@ -43,4 +43,16 @@ document.getElementById('test').addEventListener('click', async () => {
   }
 });
 
+async function showStorage() {
+  const s = await W.topics.handle({ type: 'cache:stats' });
+  const mb = s.bytes != null ? ` · about ${(s.bytes / 1e6).toFixed(1)} MB used by the extension` : '';
+  document.getElementById('storage').textContent = `${s.entries} cached Wikipedia responses · ${s.topics} saved topics${mb}`;
+}
+
+document.getElementById('clearCache').addEventListener('click', async () => {
+  await W.topics.handle({ type: 'cache:clear' });
+  showStorage();
+});
+
 init();
+showStorage();

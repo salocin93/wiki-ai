@@ -8,6 +8,7 @@
     @media (prefers-color-scheme: dark) { :root { --accent: #88a3e8; --muted: #9a9ea6; --border: #444; } }
     body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
     h1 { font-size: 22px; }
+    h2 { font-size: 16px; margin-top: 36px; }
     label { display: block; font-weight: 600; margin-top: 16px; }
     .hint { color: var(--muted); font-weight: normal; font-size: 12.5px; }
     input[type=text], input[type=password], input[type=number] { width: 100%; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; }
@@ -52,8 +53,17 @@
     <span id="status"></span>
   </div>
 
+  <h2>Storage</h2>
+  <p class="hint" id="storage">Checking…</p>
+  <div class="actions">
+    <button id="clearCache">Clear article cache</button>
+    <span class="hint">Cached article text expires after a day and is capped at 300 articles. Saved topics are kept until you delete them in the sidebar.</span>
+  </div>
+
   <script src="../lib/settings.js"></script>
+  <script src="../lib/cache.js"></script>
   <script src="../lib/llm.js"></script>
+  <script src="../lib/topics.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

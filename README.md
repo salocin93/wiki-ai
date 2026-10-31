@@ -8,6 +8,7 @@ A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia ar
 - **Follows links.** The model can find relevant linked articles (by their title, link text and the sentence they appear in), read their introductions, and search inside them.
 - **Ask about selected text.** Select a passage and click **Ask about this**, or right-click → *Ask Wiki AI about "…"*.
 - **Knows where you are.** The section you're scrolled to is added to the prompt, so "explain this section" works.
+- **Topic clusters across many articles.** Click **Build topic cluster** and the model groups the article's most relevant links into themes, e.g. *House of Oldenburg* → Danish line, cadet branches, origins. The cluster stays active as you browse its articles, and questions then search every article in it at once. You can add or remove articles, and switch between saved topics.
 - **Falls back automatically.** If the PC model is off (HTTP 503), it retries on `mac/qwen3.5-9b-fast`.
 
 Toggle the sidebar with the round button (bottom right), the toolbar icon, or **Alt+Shift+W**.
@@ -23,7 +24,27 @@ lib/wiki.js          Wikipedia API: plain-text article split into sections → ~
 lib/bm25.js          keyword search over chunks and over links (no embedding model needed)
 lib/agent.js         tool-calling loop, prompt budget, numbered sources
 lib/llm.js           streaming OpenAI-compatible client (tool calls, <think> handling, 503 fallback)
+lib/cluster.js       builds a topic cluster: rank links → model groups them into themes → check titles
+lib/topics.js        saved topics, search across a topic's articles, message API for the sidebar
 ```
+
+### How a topic cluster is built
+
+1. **Candidates, no model:** every link on the page is scored by where it appears: navigation boxes (a topic's member list), "Main article:" notes, the infobox, the introduction, and how often it is linked. The top 80 are kept.
+2. **One model call:** the model gets the introduction, the outline and the numbered candidates, and returns themes as lists of candidate **numbers**, so it can't invent article titles. For a missing theme it can suggest a Wikipedia search instead.
+3. **Check, no model:** every title is resolved through the Wikipedia API (redirects followed, missing articles dropped). Then each article's one-line description is fetched, and the links between the topic's articles are mapped.
+
+With a topic active, the model gets the topic map (themes, articles, descriptions) and two extra tools: `search_topic` (one search across all topic articles, at most two passages per article so no single article dominates) and `topic_connections` (how one article links to the others, with the citable sentences).
+
+### Storage
+
+| What | Where | Size and lifetime |
+|---|---|---|
+| Saved topics (titles, themes, short summaries, links between pages) | `chrome.storage.local` | ~20–60 KB per topic, kept until you delete it |
+| Wikipedia article text and summaries | IndexedDB cache | expires after 24 h, capped at 300 entries (oldest removed first) |
+| Search indexes | memory only | rebuilt as needed |
+
+The settings page shows current usage and has a button to clear the cache.
 
 Context stays small because the model pulls in text through tools rather than getting the whole article:
 
@@ -56,6 +77,11 @@ The device must be on the tailnet. The key is stored only in the browser's exten
 ```bash
 set -a; . ~/.config/local-llm/env; set +a
 node test/agent-cli.mjs "Ada Lovelace" "Who was her mother and what was she known for?" mac/qwen3.5-9b
+```
+
+**Topic cluster against the real model** (link signals are approximated from the HTML):
+```bash
+node test/cluster-cli.mjs "House of Oldenburg" mac/qwen3.5-9b "How is the House of Oldenburg connected to Denmark, Greece and Russia?"
 ```
 
 **Sidebar UI without installing the extension** (real Wikipedia retrieval, scripted fake model, no key):

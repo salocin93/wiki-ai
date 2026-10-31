@@ -11,17 +11,35 @@
       s.onerror = reject;
       document.head.appendChild(s);
     });
-  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/wiki.js', 'lib/llm.js', 'lib/agent.js', 'content/markdown.js']) await load(f);
+  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/wiki.js', 'lib/llm.js', 'lib/agent.js', 'lib/topics.js', 'lib/cluster.js', 'content/markdown.js']) await load(f);
   const W = globalThis.WikiAI;
   const settings = { ...W.settings.DEFAULTS, model: 'fake-model' };
 
   // Fake model: searches the article, opens one linked article, then answers citing what it got.
   W.llm.chat = async ({ messages, tools, onUpdate }) => {
+    // Cluster planning: pick candidate numbers into three themes.
+    if (!tools && messages[0].content.includes('topic cluster')) {
+      await new Promise((r) => setTimeout(r, 600));
+      const n = (messages[1].content.match(/^\d+\. /gm) || []).length;
+      const take = (from, k) => Array.from({ length: k }, (_, i) => from + i).filter((x) => x <= n);
+      return {
+        content: JSON.stringify({
+          name: document.title.replace(' - Wikipedia', ''),
+          facets: [
+            { name: 'Core lines', why: 'The main branches.', pages: take(1, 6) },
+            { name: 'Related houses', why: 'Families tied by marriage or descent.', pages: take(7, 5) },
+            { name: 'Events', why: 'Turning points.', pages: take(12, 4) },
+          ],
+          search: [{ facet: 'Events', query: 'Schleswig-Holstein question' }],
+        }),
+        toolCalls: [],
+      };
+    }
     const toolMsgs = messages.filter((m) => m.role === 'tool');
     const question = messages.filter((m) => m.role === 'user').pop().content.split('\n---')[0];
     const call = (name, args) => ({ content: '', toolCalls: [{ id: 'c' + toolMsgs.length, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
     await new Promise((r) => setTimeout(r, 400));
-    if (tools && toolMsgs.length === 0) return call('search_article', { query: question });
+    if (tools && toolMsgs.length === 0) return call(tools.some((t) => t.function.name === 'search_topic') ? 'search_topic' : 'search_article', { query: question });
     if (tools && toolMsgs.length === 1) return call('find_linked_articles', { query: question });
     const linked = [...(toolMsgs[1]?.content || '').matchAll(/^- (.+?)(?: \(linked as| —)/gm)].map((m) => m[1]);
     if (tools && toolMsgs.length >= 2 && toolMsgs.length < 2 + Math.min(3, linked.length)) {
@@ -40,7 +58,13 @@
   window.chrome = {
     runtime: {
       getURL: (p) => BASE + p,
-      sendMessage: () => {},
+      sendMessage: async (msg) => {
+        try {
+          return { result: await W.topics.handle(msg) };
+        } catch (e) {
+          return { error: e.message };
+        }
+      },
       onMessage: { addListener: (fn) => listeners.push(fn) },
       connect() {
         const onMsg = [];
@@ -50,11 +74,19 @@
           onDisconnect: { addListener() {} },
           postMessage(msg) {
             const emit = (m) => onMsg.forEach((fn) => fn(m));
-            if (msg.type === 'stop') return ctrl?.abort();
+            if (msg.type === 'stop' || msg.type === 'stopTopic') return ctrl?.abort();
+            if (msg.type === 'buildTopic') {
+              ctrl = new AbortController();
+              return W.cluster
+                .build({ settings, page: msg.page, emit, signal: ctrl.signal })
+                .then((topic) => emit({ type: 'topicBuilt', topic }))
+                .catch((e) => emit({ type: 'topicError', message: e.message }));
+            }
             ctrl = new AbortController();
             const signal = ctrl.signal;
-            W.agent
-              .run({ settings, page: msg.page, question: msg.question, history: msg.history, sources: msg.sources, emit, signal })
+            W.topics
+              .get(msg.topicId)
+              .then((topic) => W.agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit, signal }))
               .catch((e) => (signal.aborted ? emit({ type: 'done', stopped: true }) : emit({ type: 'error', message: e.message })));
           },
         };
