@@ -45,13 +45,42 @@
     return name;
   }
 
+  const headingLevel = (el) => {
+    const h = el.matches('h2, h3, h4, h5, h6') ? el : el.matches('.mw-heading') ? el.querySelector('h2, h3, h4, h5, h6') : null;
+    return h ? Number(h.tagName[1]) : 0;
+  };
+
+  // The section the reader is looking at, with its text as shown on the page. Wikipedia's plain-text export
+  // drops charts, family trees and many tables, so the page itself is the reliable source for "this section".
   function visibleSection() {
-    let name = 'Introduction';
+    let current = null;
+    const stack = [];
     for (const h of headings()) {
-      if (h.getBoundingClientRect().top < window.innerHeight * 0.35) name = headingText(h);
-      else break;
+      if (h.getBoundingClientRect().top >= window.innerHeight * 0.35) break;
+      const level = Number(h.tagName[1]);
+      while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+      stack.push({ level, name: headingText(h) });
+      current = h;
     }
-    return name;
+    if (!current) return { name: 'Introduction', path: 'Introduction', text: '' };
+
+    const level = Number(current.tagName[1]);
+    const parts = [];
+    let length = 0;
+    for (let el = (current.closest('.mw-heading') || current).nextElementSibling; el && length < 8000; el = el.nextElementSibling) {
+      const l = headingLevel(el);
+      if (l && l <= level) break;
+      if (el.matches('style, script, .navbox, .reflist, .mw-references-wrap, .mw-editsection')) continue;
+      const text = (l ? `\n${cleanText(el)}\n` : el.innerText || el.textContent)
+        .replace(/\[\d+\]|\[citation needed\]|\[[a-z]\]|\[edit\]/g, '')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n\s*\n+/g, '\n')
+        .trim();
+      if (!text) continue;
+      parts.push(text);
+      length += text.length;
+    }
+    return { name: stack[stack.length - 1].name, path: stack.map((x) => x.name).join(' › '), text: parts.join('\n').slice(0, 8000) };
   }
 
   function cleanText(el) {
@@ -143,7 +172,7 @@
       url: canonical,
       links: collectLinks(),
       categories: [...document.querySelectorAll('#mw-normal-catlinks li a')].map((a) => a.textContent.trim()),
-      visibleSection: visibleSection(),
+      visibleSection: visibleSection(), // {name, path, text}
     };
   }
 
