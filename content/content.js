@@ -553,6 +553,7 @@
   const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
   const esc = (v) => W.markdown.esc(String(v ?? ''));
   const normQ = (q) => W.markdown.plain(q).toLowerCase().replace(/\s+/g, ' ').trim();
+  const DOC_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>`;
   const GRAPH_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>`;
 
   // ---------- Views: Chat, Topic, Map ----------
@@ -974,9 +975,11 @@
     const others = [...groups]
       .map(([scope, chats]) => {
         const label = scopeLabel(scope);
-        const icon = label.kind === 'topic' ? GRAPH_ICON : '<span aria-hidden="true">📄</span>';
+        const icon = label.kind === 'topic' ? GRAPH_ICON : DOC_ICON;
+        // A chat about this very article, kept separately from the topic's chats.
+        const tag = label.kind === 'topic' ? 'topic' : scope === `page:${lang}:${title}` ? 'this article, without the topic' : 'article';
         return `<div class="history-group">
-          <div class="history-scope">${icon}<span>${esc(label.name)}</span><span class="tag">${label.kind}</span></div>
+          <div class="history-scope ${label.kind}">${icon}<span>${esc(label.name)}</span><span class="tag">· ${tag}</span></div>
           <ul>${chats.map((c) => row(c)).join('')}</ul>
         </div>`;
       })

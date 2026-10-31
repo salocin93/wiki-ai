@@ -342,3 +342,15 @@ button.primary { padding: 8px 14px; border-radius: 8px; border: none; background
 .chip .n { color: var(--muted); font-size: 11px; }
 .scope-card-links { display: flex; gap: 14px; margin-top: 10px; font-size: 12.5px; }
 .empty .fu-label { margin: 14px 0 6px; }
+
+/* History across topics and articles */
+.history-search {
+  width: 100%; margin-bottom: 4px; padding: 8px 10px; font: inherit; font-size: 13px; color: var(--text);
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: 8px; outline: none;
+}
+.history-search:focus { border-color: var(--accent); }
+.history-group { margin: 6px 0 14px; }
+.history-scope { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.history-scope svg { width: 14px; height: 14px; color: var(--muted); flex: none; }
+.history-scope.topic svg { color: var(--accent); }
+.history-scope .tag { font-weight: 400; color: var(--muted); font-size: 11.5px; }
