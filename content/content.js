@@ -28,6 +28,7 @@
     savedTopics: [],
     building: null, // progress text while a cluster is being built
     topicError: null,
+    useTopicHere: null, // null: use the open topic only on its own articles; true/false: the reader chose
   };
 
   // ---------- Page reading helpers ----------
@@ -314,6 +315,7 @@
       <section class="view view-topic" role="tabpanel" hidden><div class="topic"></div></section>
       <section class="view view-map" role="tabpanel" hidden></section>
       <section class="view view-chat" role="tabpanel">
+      <div class="scope-bar" hidden></div>
       <div class="chat-bar"></div>
       <div class="messages" role="log" aria-live="polite"></div>
       <div class="preview" hidden></div>
@@ -359,6 +361,7 @@
   const topicView = $('.view-topic');
   const mapView = $('.view-map');
   const chatBar = $('.chat-bar');
+  const scopeBar = $('.scope-bar');
   $('.sub').textContent = title;
 
   function syncTheme() {
@@ -445,10 +448,23 @@
     } catch {}
     renderTopic();
     if (currentScope() !== state.scope) await loadConversations();
-    else render();
+    else {
+      renderChatBar();
+      render();
+    }
   }
 
   const inTopic = () => !!state.topic?.pages.some((p) => p.title === title);
+  // The topic chats on this page use: the open topic on its own articles, this article alone elsewhere,
+  // unless the reader switched.
+  const topicHere = () => (state.topic && (state.useTopicHere ?? inTopic()) ? state.topic : null);
+
+  async function setScope(useTopic) {
+    state.useTopicHere = useTopic;
+    if (currentScope() !== state.scope) await loadConversations();
+    renderChatBar();
+    renderTopic();
+  }
   const wikiUrl = (t) => `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
 
   const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
@@ -485,7 +501,7 @@
   // ---------- Topic view ----------
 
   function renderTopic() {
-    input.placeholder = state.quote ? 'Ask about the selected text…' : state.topic ? 'Ask about this topic…' : 'Ask about this article…';
+    input.placeholder = state.quote ? 'Ask about the selected text…' : topicHere() ? 'Ask about this topic…' : 'Ask about this article…';
     renderNav();
     if (state.view !== 'topic') return;
     const t = state.topic;
@@ -601,6 +617,7 @@
     state.building = 'Starting';
     state.topicError = null;
     renderTopic();
+    renderScopeBar();
     connect().postMessage({ type: 'buildTopic', page: pageInfo() });
   }
 
@@ -628,10 +645,11 @@
       currentTitle: title,
       colorOf: (p) => (p.seed ? 'c0' : `c${(Math.max(0, facets.indexOf(p.facet)) % 5) + 1}`),
       onOpenArticle: (t2) => (location.href = wikiUrl(t2)),
-      onAsk: (t2) => {
+      onAsk: async (t2) => {
         closeMap?.();
         setView('chat');
         state.historyOpen = false;
+        if (!topicHere()) await setScope(true);
         const q = `Tell me about ${t2} and how it connects to ${t.name}.`;
         if (state.busy) {
           input.value = q;
@@ -671,7 +689,7 @@
   });
   const conv = () => state.convs.find((c) => c.id === state.activeId) || state.convs[0];
   const convById = (id) => state.convs.find((c) => c.id === id);
-  const currentScope = () => (state.topic ? `topic:${state.topic.id}` : `page:${lang}:${title}`);
+  const currentScope = () => (topicHere() ? `topic:${topicHere().id}` : `page:${lang}:${title}`);
 
   async function loadConversations() {
     state.scope = currentScope();
@@ -736,7 +754,28 @@
     } else ask(question, c);
   }
 
+  // "Ask about: [this article] [the topic]" whenever a topic is open, plus a quick way to start a new topic.
+  function renderScopeBar() {
+    if (state.building) {
+      scopeBar.hidden = false;
+      scopeBar.innerHTML = `<span class="dot"></span><span class="scope-status">${esc(state.building)}</span><button class="link stop-topic">Stop</button>`;
+      return;
+    }
+    const t = state.topic;
+    scopeBar.hidden = !t;
+    if (!t) return;
+    const usingTopic = !!topicHere();
+    scopeBar.innerHTML = `
+      <span class="scope-label">Ask about</span>
+      <span class="seg" role="radiogroup" aria-label="Ask about">
+        <button class="seg-btn scope-article${usingTopic ? '' : ' on'}" role="radio" aria-checked="${!usingTopic}" title="Only this article and the articles it links to">${esc(truncate(title, 24))}</button>
+        <button class="seg-btn scope-topic${usingTopic ? ' on' : ''}" role="radio" aria-checked="${usingTopic}" title="All ${t.pages.length} articles in the topic">${esc(truncate(t.name, 24))} <span class="seg-meta">topic</span></button>
+      </span>
+      ${inTopic() ? '' : '<button class="link build-topic" title="Build a topic cluster starting from this article">New topic from this article</button>'}`;
+  }
+
   function renderChatBar() {
+    renderScopeBar();
     const c = conv();
     const saved = state.convs.filter((x) => x.messages.length).length;
     chatBar.innerHTML = `
@@ -759,7 +798,7 @@
     const chats = state.convs
       .filter((c) => c.messages.length)
       .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
-    const where = state.topic ? `in the topic “${esc(state.topic.name)}”` : `about “${esc(title)}”`;
+    const where = topicHere() ? `in the topic “${esc(topicHere().name)}”` : `about “${esc(title)}”`;
     messagesEl.innerHTML = chats.length
       ? `<div class="history"><h4>Chats ${where}</h4><ul>${chats
           .map((c) => {
@@ -795,7 +834,7 @@
     if (!c || state.view !== 'chat') return;
     if (state.historyOpen) return renderHistory();
     if (!c.messages.length) {
-      const t = state.topic;
+      const t = topicHere();
       const intro = t
         ? `Ask anything about <strong>${esc(t.name)}</strong>: answers search all ${t.pages.length} articles in the topic.`
         : `Ask anything about <strong>${esc(title)}</strong> or the articles it links to. Select text in the article to ask about a passage.`;
@@ -804,6 +843,7 @@
         <div class="empty">
           <p>${intro}</p>
           ${(t ? topicSuggestions(t) : SUGGESTIONS).map((q) => `<button class="suggestion">${esc(q)}</button>`).join('')}
+          ${state.topic || state.building ? '' : '<p class="why">Want to explore this subject across many articles? <button class="link build-topic">Build a topic cluster</button></p>'}
           ${open ? `<p class="why">${open} suggested question${open > 1 ? 's' : ''} from earlier chats are waiting in <button class="link go-topic">Topic › Questions to explore</button>.</p>` : ''}
         </div>`;
       return;
@@ -939,13 +979,15 @@
       if (msg.type === 'topicBuilt') {
         state.building = null;
         state.topic = msg.topic;
-        refreshTopic();
+        state.useTopicHere = null;
+        refreshTopic().then(() => state.view === 'map' && renderMapView());
       }
       if (msg.type === 'topicError') {
         state.building = null;
         state.topicError = msg.message;
       }
       renderTopic();
+      renderScopeBar();
       render();
       return;
     }
@@ -1022,7 +1064,7 @@
       history,
       sources: c.sources,
       page: { ...pageInfo(), selection: quote },
-      topicId: state.topic?.id || null,
+      topicId: topicHere()?.id || null,
     });
   }
 
@@ -1119,14 +1161,20 @@
     else if (t.matches('.go-topic')) setView('topic');
     else if (t.matches('.open-settings')) openOptions();
     else if (t.matches('.reload-page')) location.reload();
-    else if (t.matches('.build-topic, .rebuild-topic')) {
-      if (state.view !== 'topic') setView('topic');
-      buildTopic();
-    } else if (t.matches('.stop-topic')) state.port?.postMessage({ type: 'stopTopic' });
+    else if (t.matches('.build-topic, .rebuild-topic')) buildTopic();
+    else if (t.matches('.scope-article')) setScope(false);
+    else if (t.matches('.scope-topic')) setScope(true);
+    else if (t.matches('.stop-topic')) state.port?.postMessage({ type: 'stopTopic' });
     else if (t.matches('.add-page')) topicAction(() => send({ type: 'topics:addPage', id: state.topic.id, title }));
     else if (t.matches('.remove-page')) topicAction(() => send({ type: 'topics:removePage', id: state.topic.id, title: t.dataset.title }));
-    else if (t.matches('.leave-topic')) topicAction(() => send({ type: 'topics:setActive', id: null }));
-    else if (t.matches('.open-topic')) topicAction(() => send({ type: 'topics:setActive', id: t.dataset.id }));
+    else if (t.matches('.leave-topic')) {
+      state.useTopicHere = null;
+      topicAction(() => send({ type: 'topics:setActive', id: null }));
+    }
+    else if (t.matches('.open-topic')) {
+      state.useTopicHere = true; // opened on purpose, so use it here even if this article isn't in it
+      topicAction(() => send({ type: 'topics:setActive', id: t.dataset.id }));
+    }
     else if (t.matches('.delete-topic')) {
       const name = state.savedTopics.find((x) => x.id === t.dataset.id)?.name;
       if (confirm(`Delete the topic “${name}”? This can't be undone.`)) topicAction(() => send({ type: 'topics:delete', id: t.dataset.id }));
