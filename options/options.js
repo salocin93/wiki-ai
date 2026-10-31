@@ -79,6 +79,17 @@ document.getElementById('test').addEventListener('click', async () => {
     const relevant = settings.provider === 'gateway' ? models.filter((m) => /^(pc|mac)\//.test(m)) : models.filter((m) => !/embedding|aqa|imagen|veo|tts/i.test(m));
     const usable = [...new Set([settings.model, settings.fallbackModel, ...relevant])].filter(Boolean);
     document.getElementById('models').innerHTML = usable.map((m) => `<option value="${m}">`).join('');
+
+    // Gemini's model line-up changes; if the chosen model is gone, pick the best one available.
+    if (settings.provider === 'gemini' && !models.includes(settings.model)) {
+      const prefer = [/^gemma-4-26b-a4b-it$/, /^gemma-4.*-it$/, /^gemma-\d.*-it$/, /flash-lite$/, /flash$/];
+      const pick = prefer.map((re) => models.find((m) => re.test(m))).find(Boolean);
+      if (pick) {
+        document.getElementById('model').value = pick;
+        show(`“${settings.model}” isn't available for this key, so “${pick}” is filled in. Click Save to use it.`, true);
+        return;
+      }
+    }
     const results = [];
     for (const m of [settings.model, settings.fallbackModel].filter(Boolean)) {
       if (models.includes(m)) {
