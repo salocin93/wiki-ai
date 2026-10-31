@@ -23,8 +23,8 @@
     port: null,
     links: null,
     topic: null, // active topic cluster
-    topicOpen: false, // drawer expanded
-    topicView: 'map', // 'map' or 'saved'
+    view: 'chat', // 'chat', 'topic' or 'map'
+    historyOpen: false, // chat history list shown instead of the chat
     savedTopics: [],
     building: null, // progress text while a cluster is being built
     topicError: null,
@@ -296,7 +296,7 @@
           <div class="name">Wiki AI</div>
           <div class="sub"></div>
         </div>
-        <button class="icon new" title="New chat tab" aria-label="New chat tab">
+        <button class="icon new" title="New chat" aria-label="New chat">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
         <button class="icon settings" title="Settings" aria-label="Settings">
@@ -306,8 +306,15 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </header>
-      <div class="topic"></div>
-      <div class="tabs" role="tablist" hidden></div>
+      <nav class="views" role="tablist" aria-label="Sidebar sections">
+        <button class="view-btn active" role="tab" aria-selected="true" data-view="chat">Chat<span class="dot" hidden></span></button>
+        <button class="view-btn" role="tab" aria-selected="false" data-view="topic">Topic<span class="dot" hidden></span></button>
+        <button class="view-btn" role="tab" aria-selected="false" data-view="map">Map</button>
+      </nav>
+      <section class="view view-topic" role="tabpanel" hidden><div class="topic"></div></section>
+      <section class="view view-map" role="tabpanel" hidden></section>
+      <section class="view view-chat" role="tabpanel">
+      <div class="chat-bar"></div>
       <div class="messages" role="log" aria-live="polite"></div>
       <div class="preview" hidden></div>
       <form class="composer">
@@ -319,6 +326,7 @@
           </button>
         </div>
       </form>
+      </section>
     </aside>`;
   document.documentElement.appendChild(host);
 
@@ -346,7 +354,11 @@
   const previewEl = $('.preview');
   const askSelBtn = $('.ask-selection');
   const topicEl = $('.topic');
-  const tabsEl = $('.tabs');
+  const navEl = $('.views');
+  const chatView = $('.view-chat');
+  const topicView = $('.view-topic');
+  const mapView = $('.view-map');
+  const chatBar = $('.chat-bar');
   $('.sub').textContent = title;
 
   function syncTheme() {
@@ -384,7 +396,10 @@
     launcher.hidden = open;
     document.documentElement.classList.toggle('wikiai-open', open);
     unpinWikipediaColumn(open);
-    if (!open) closeMap?.();
+    if (!open) {
+      closeMap?.();
+      unmountMap?.();
+    } else if (state.view === 'map') renderMapView();
     if (open) {
       render();
       refreshTopic();
@@ -436,42 +451,109 @@
   const inTopic = () => !!state.topic?.pages.some((p) => p.title === title);
   const wikiUrl = (t) => `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
 
-  function renderTopic() {
-    const esc = W.markdown.esc;
-    const t = state.topic;
-    input.placeholder = state.quote ? 'Ask about the selected text…' : t ? 'Ask about this topic…' : 'Ask about this article…';
-    if (state.building) {
-      topicEl.innerHTML = `<div class="topic-bar building"><span class="dot"></span><span class="topic-status">${esc(state.building)}</span><button class="link stop-topic">Stop</button></div>`;
-      return;
+  const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
+  const esc = (v) => W.markdown.esc(String(v ?? ''));
+  const normQ = (q) => q.toLowerCase().replace(/\s+/g, ' ').trim();
+  const GRAPH_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>`;
+
+  // ---------- Views: Chat, Topic, Map ----------
+
+  function setView(view) {
+    state.view = view;
+    for (const b of navEl.querySelectorAll('.view-btn')) {
+      const on = b.dataset.view === view;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on);
     }
-    const error = state.topicError ? `<div class="topic-error">${esc(state.topicError)}</div>` : '';
-    if (!t) {
-      topicEl.innerHTML = `
-        <div class="topic-bar empty">
-          <span class="topic-hint">Questions use this article and its links.</span>
-          <button class="link build-topic" title="Let the AI group this article's most relevant linked articles into themes">Build topic cluster</button>
-          ${state.savedTopics.length ? `<button class="link show-saved">Saved (${state.savedTopics.length})</button>` : ''}
-        </div>${error}${state.topicOpen && state.topicView === 'saved' ? savedList() : ''}`;
-      return;
+    chatView.hidden = view !== 'chat';
+    topicView.hidden = view !== 'topic';
+    mapView.hidden = view !== 'map';
+    if (view !== 'map') unmountMap?.();
+    if (view === 'topic') renderTopic();
+    if (view === 'map') renderMapView();
+    if (view === 'chat') {
+      renderChatBar();
+      render(true);
     }
-    const chevron = `<svg class="chev${state.topicOpen ? ' open' : ''}" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
-    topicEl.innerHTML = `
-      <div class="topic-row">
-      <button class="topic-bar active toggle-topic" aria-expanded="${state.topicOpen}">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>
-        <span class="topic-name">${esc(t.name)}</span>
-        <span class="topic-meta">${t.pages.length} articles · ${t.facets.length} themes</span>
-        ${chevron}
-      </button>
-      <button class="icon open-map" title="Show topic map" aria-label="Show topic map">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg>
-      </button>
-      </div>${error}
-      ${state.topicOpen ? (state.topicView === 'saved' ? savedList() : topicMap(t)) : ''}`;
   }
 
-  function topicMap(t) {
-    const esc = W.markdown.esc;
+  function renderNav() {
+    navEl.querySelector('[data-view="chat"] .dot').hidden = !state.busy;
+    navEl.querySelector('[data-view="topic"] .dot').hidden = !state.building;
+  }
+
+  // ---------- Topic view ----------
+
+  function renderTopic() {
+    input.placeholder = state.quote ? 'Ask about the selected text…' : state.topic ? 'Ask about this topic…' : 'Ask about this article…';
+    renderNav();
+    if (state.view !== 'topic') return;
+    const t = state.topic;
+    const parts = [];
+    if (state.building) {
+      parts.push(`<div class="topic-head building"><span class="dot"></span><span class="topic-status">${esc(state.building)}</span><button class="link stop-topic">Stop</button></div>`);
+    } else if (t) {
+      parts.push(`
+        <div class="topic-head">
+          <div class="topic-title">${GRAPH_ICON}<div><div class="topic-name">${esc(t.name)}</div><div class="topic-meta">${t.pages.length} articles · ${t.facets.length} themes</div></div></div>
+          ${inTopic() ? '' : `<div class="notice">This article isn't in the topic. <button class="link add-page">Add it</button></div>`}
+          <div class="topic-actions">
+            <button class="link go-map">Show map</button>
+            <button class="link rebuild-topic" title="Build a new cluster starting from this article">Rebuild from this article</button>
+            <button class="link leave-topic">Close topic</button>
+          </div>
+        </div>`);
+    } else {
+      parts.push(`
+        <div class="topic-head empty">
+          <p>Questions now use <strong>${esc(title)}</strong> and the articles it links to. A topic cluster lets you explore a subject across many articles: the AI groups this article's most relevant links into themes, and answers search all of them.</p>
+          <button class="primary build-topic">Build topic cluster</button>
+        </div>`);
+    }
+    if (state.topicError) parts.push(`<div class="topic-error">${esc(state.topicError)}</div>`);
+    parts.push(exploreSection());
+    if (t && !state.building) parts.push(themesSection(t));
+    parts.push(savedTopicsSection());
+    topicEl.innerHTML = parts.join('');
+  }
+
+  // Suggested questions that haven't been asked yet, from every chat saved here (newest chats first).
+  function unexplored() {
+    const asked = new Set(state.convs.flatMap((c) => c.messages.filter((m) => m.role === 'user').map((m) => normQ(m.content))));
+    const seen = new Set();
+    const groups = [];
+    const byRecent = [...state.convs].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+    for (const c of byRecent) {
+      c.messages.forEach((m, i) => {
+        if (m.role !== 'assistant' || !m.followups?.length) return;
+        const items = m.followups.filter((q) => !asked.has(normQ(q)) && !seen.has(normQ(q)));
+        items.forEach((q) => seen.add(normQ(q)));
+        if (items.length) groups.push({ convId: c.id, from: c.messages[i - 1]?.content || c.title, items });
+      });
+    }
+    return groups;
+  }
+
+  function exploreSection() {
+    const groups = unexplored();
+    if (!groups.length) return '';
+    const count = groups.reduce((n, g) => n + g.items.length, 0);
+    return `
+      <section class="block explore">
+        <h4>Questions to explore <span class="count">${count}</span></h4>
+        <p class="why">Suggestions from your chats that you haven't asked yet. Asking one continues the chat it came from.</p>
+        ${groups
+          .map(
+            (g) => `<div class="explore-group">
+              <div class="explore-from">After “${esc(truncate(g.from, 80))}”</div>
+              ${g.items.map((q) => `<button class="followup explore-q" data-conv="${g.convId}" data-q="${esc(q)}">${esc(q)}</button>`).join('')}
+            </div>`
+          )
+          .join('')}
+      </section>`;
+  }
+
+  function themesSection(t) {
     const pageRow = (p) => `
       <li class="${p.title === title ? 'here' : ''}">
         <a href="${wikiUrl(p.title)}" title="${esc(p.summary || p.description || '')}">${esc(p.title)}</a>
@@ -484,41 +566,30 @@
       .map((f) => {
         const pages = t.pages.filter((p) => p.facet === f.name);
         if (!pages.length) return '';
-        return `<section class="facet"><h5>${esc(f.name)}</h5>${f.why ? `<p class="why">${esc(f.why)}</p>` : ''}<ul>${pages.map(pageRow).join('')}</ul></section>`;
+        return `<div class="facet"><h5>${esc(f.name)}</h5>${f.why ? `<p class="why">${esc(f.why)}</p>` : ''}<ul>${pages.map(pageRow).join('')}</ul></div>`;
       })
       .join('');
     return `
-      <div class="topic-drawer">
-        ${inTopic() ? '' : `<div class="notice">This article isn't in the topic. <button class="link add-page">Add it</button></div>`}
+      <section class="block">
+        <h4>Themes and articles</h4>
         ${seed.length ? `<ul class="seed">${seed.map(pageRow).join('')}</ul>` : ''}
         ${facets}
-        <div class="drawer-actions">
-          <button class="link open-map">Show map</button>
-          <button class="link rebuild-topic" title="Build a new cluster starting from this article">Rebuild from this article</button>
-          <button class="link show-saved">Saved topics</button>
-          <button class="link leave-topic">Close topic</button>
-        </div>
-      </div>`;
+      </section>`;
   }
 
-  function savedList() {
-    const esc = W.markdown.esc;
+  function savedTopicsSection() {
+    if (!state.savedTopics.length) return '';
     const rows = state.savedTopics
       .map(
         (t) => `
         <li class="${t.id === state.topic?.id ? 'here' : ''}">
-          <button class="link open-topic" data-id="${t.id}">${esc(t.name)}</button>
+          ${t.id === state.topic?.id ? `<strong>${esc(t.name)}</strong> <span class="tag">open</span>` : `<button class="link open-topic" data-id="${t.id}">${esc(t.name)}</button>`}
           <span class="desc">${t.pages} articles · ${t.facets} themes · from “${esc(t.seed)}”</span>
           <button class="icon delete-topic" data-id="${t.id}" title="Delete topic" aria-label="Delete ${esc(t.name)}">×</button>
         </li>`
       )
       .join('');
-    return `
-      <div class="topic-drawer">
-        <h5>Saved topics</h5>
-        ${rows ? `<ul>${rows}</ul>` : '<p class="why">No saved topics yet.</p>'}
-        <div class="drawer-actions">${state.topic ? '<button class="link back-to-map">Back to topic map</button>' : '<button class="link close-saved">Close</button>'}</div>
-      </div>`;
+    return `<section class="block"><h4>Saved topics</h4><ul>${rows}</ul></section>`;
   }
 
   function buildTopic() {
@@ -529,7 +600,6 @@
     }
     state.building = 'Starting';
     state.topicError = null;
-    state.topicOpen = false;
     renderTopic();
     connect().postMessage({ type: 'buildTopic', page: pageInfo() });
   }
@@ -544,7 +614,51 @@
     await refreshTopic();
   }
 
-  // ---------- Conversations (tabs) ----------
+  // ---------- Map view ----------
+
+  let unmountMap = null;
+  let closeMap = null;
+
+  function mapOptions() {
+    const t = state.topic;
+    const facets = t.facets.map((f) => f.name);
+    return {
+      root,
+      topic: t,
+      currentTitle: title,
+      colorOf: (p) => (p.seed ? 'c0' : `c${(Math.max(0, facets.indexOf(p.facet)) % 5) + 1}`),
+      onOpenArticle: (t2) => (location.href = wikiUrl(t2)),
+      onAsk: (t2) => {
+        closeMap?.();
+        setView('chat');
+        state.historyOpen = false;
+        const q = `Tell me about ${t2} and how it connects to ${t.name}.`;
+        if (state.busy) {
+          input.value = q;
+          autosize();
+        } else ask(q);
+      },
+    };
+  }
+
+  function renderMapView() {
+    unmountMap?.();
+    unmountMap = null;
+    if (!state.topic) {
+      mapView.innerHTML = `<div class="map-empty"><p>The map shows a topic cluster's articles and how they link to each other.</p><button class="primary build-topic">Build topic cluster</button></div>`;
+      return;
+    }
+    mapView.innerHTML = '<div class="map-host"></div>';
+    unmountMap = W.topicMap.mount(mapView.querySelector('.map-host'), { ...mapOptions(), onExpand: showMap });
+  }
+
+  // The large version over the article area, next to the sidebar.
+  function showMap() {
+    if (!state.topic) return;
+    closeMap = W.topicMap.open({ ...mapOptions(), rightInset: state.open ? PANEL_WIDTH : 0 });
+  }
+
+  // ---------- Chats ----------
 
   const newConv = (extra = {}) => ({
     id: `c_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
@@ -558,7 +672,6 @@
   const conv = () => state.convs.find((c) => c.id === state.activeId) || state.convs[0];
   const convById = (id) => state.convs.find((c) => c.id === id);
   const currentScope = () => (state.topic ? `topic:${state.topic.id}` : `page:${lang}:${title}`);
-  const stripCites = (text) => text.replace(/\s?\[\d+(?:\s*[,;]\s*\d+)*\]/g, '');
 
   async function loadConversations() {
     state.scope = currentScope();
@@ -568,122 +681,97 @@
     } catch {}
     // Keep a conversation that is still answering, even if it belongs elsewhere.
     const running = state.request && !saved.some((c) => c.id === state.request.id) ? [state.request] : [];
-    state.convs = [...saved, ...running].sort((a, b) => a.createdAt - b.createdAt);
-    if (!state.convs.length) state.convs.push(newConv());
+    state.convs = [...saved, ...running];
     const latest = [...state.convs].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0];
-    state.activeId = latest.id;
-    renderTabs();
+    if (!latest) state.convs.push(newConv());
+    state.activeId = (latest || state.convs[0]).id;
+    renderChatBar();
     render();
+    if (state.view === 'topic') renderTopic();
   }
 
   function saveConv(c) {
     send({ type: 'conv:save', scope: c.scope || state.scope, conv: c }).catch(() => {});
   }
 
-  function switchTo(id) {
+  function openChat(id) {
     const cur = conv();
     if (cur) cur.scrollTop = messagesEl.scrollTop;
     state.activeId = id;
+    state.historyOpen = false;
     previewEl.hidden = true;
-    renderTabs();
+    if (state.view !== 'chat') setView('chat');
+    renderChatBar();
     render(true);
   }
 
-  function newTab() {
+  function newChat() {
     const empty = state.convs.find((c) => !c.messages.length);
-    if (empty) return switchTo(empty.id);
-    const c = newConv();
-    state.convs.push(c);
-    switchTo(c.id);
+    const c = empty || newConv();
+    if (!empty) state.convs.push(c);
+    openChat(c.id);
     input.focus();
   }
 
-  function closeTab(id) {
+  function deleteChat(id) {
     const c = convById(id);
     if (!c) return;
     if (state.request === c) state.port?.postMessage({ type: 'stop' });
-    const i = state.convs.indexOf(c);
-    state.convs.splice(i, 1);
+    state.convs = state.convs.filter((x) => x !== c);
     if (c.messages.length) send({ type: 'conv:delete', scope: c.scope || state.scope, id }).catch(() => {});
     if (!state.convs.length) state.convs.push(newConv());
-    if (state.activeId === id) state.activeId = (state.convs[i] || state.convs[i - 1]).id;
-    renderTabs();
-    render(true);
+    if (state.activeId === id) state.activeId = state.convs[state.convs.length - 1].id;
+    renderChatBar();
+    render();
   }
 
-  // A suggested question opens in its own tab that remembers the conversation so far, so the original
-  // answer and its other suggestions stay where they were.
-  function openFollowup(parentId, msgIndex, question) {
-    const parent = convById(parentId);
-    const m = parent?.messages[msgIndex];
-    if (!m) return;
-    m.branches ||= {};
-    const existing = convById(m.branches[question]);
-    if (existing) return switchTo(existing.id);
-    const context = [...(parent.context || []), ...parent.messages.slice(0, msgIndex + 1)]
-      .filter((x) => x.content && !x.error)
-      .map((x) => ({ role: x.role, content: stripCites(x.content) }))
-      .slice(-6);
-    const child = newConv({ parentId: parent.id, parentTitle: parent.title, context });
-    m.branches[question] = child.id;
-    saveConv(parent);
-    state.convs.push(child);
-    switchTo(child.id);
+  // Suggested questions continue the chat they were suggested in.
+  function askSuggested(question, c = conv()) {
+    if (c !== conv()) openChat(c.id);
+    if (state.view !== 'chat') setView('chat');
     if (state.busy) {
-      input.value = question; // another answer is still running; ask when it's done
+      input.value = question; // an answer is still running; send it when that's done
       autosize();
       input.focus();
-    } else ask(question, child);
+    } else ask(question, c);
   }
 
-  const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
-
-  function renderTabs() {
-    const esc = W.markdown.esc;
-    const show = state.convs.length > 1 || state.convs.some((c) => c.messages.length);
-    tabsEl.hidden = !show;
-    if (!show) return;
-    tabsEl.innerHTML =
-      state.convs
-        .map((c) => {
-          const active = c.id === conv()?.id;
-          const label = c.title || 'New chat';
-          const running = state.request === c ? '<span class="dot"></span>' : '';
-          return `<div class="tab${active ? ' active' : ''}" role="presentation">
-            <button class="tab-btn" role="tab" aria-selected="${active}" data-id="${c.id}" title="${esc(label)}">${running}${c.parentId ? '<span class="branch-mark" aria-hidden="true">↳</span>' : ''}${esc(truncate(label, 26))}</button>
-            <button class="icon tab-close" data-id="${c.id}" title="Close tab" aria-label="Close ${esc(label)}">×</button>
-          </div>`;
-        })
-        .join('') + `<button class="icon tab-new" title="New chat tab" aria-label="New chat tab">+</button>`;
-    tabsEl.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  function renderChatBar() {
+    const c = conv();
+    const saved = state.convs.filter((x) => x.messages.length).length;
+    chatBar.innerHTML = `
+      <button class="link history-toggle" aria-expanded="${state.historyOpen}">${state.historyOpen ? '‹ Back to chat' : `History${saved ? ` (${saved})` : ''}`}</button>
+      <span class="chat-title" title="${esc(c?.title || '')}">${state.historyOpen ? '' : esc(truncate(c?.title || 'New chat', 44))}</span>
+      <button class="link new-chat">New chat</button>`;
+    renderNav();
   }
 
-  // ---------- Topic map ----------
+  const ago = (ts) => {
+    const m = Math.round((Date.now() - ts) / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m} min ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h} h ago`;
+    return new Date(ts).toLocaleDateString();
+  };
 
-  let closeMap = null;
-  function showMap() {
-    const t = state.topic;
-    if (!t) return;
-    const facets = t.facets.map((f) => f.name);
-    closeMap = W.topicMap.open({
-      root,
-      topic: t,
-      currentTitle: title,
-      rightInset: state.open ? PANEL_WIDTH : 0,
-      colorOf: (p) => (p.seed ? 'c0' : `c${(Math.max(0, facets.indexOf(p.facet)) % 5) + 1}`),
-      onOpenArticle: (t2) => (location.href = wikiUrl(t2)),
-      onAsk: (t2) => {
-        const empty = state.convs.find((c) => !c.messages.length);
-        const c = empty || newConv();
-        if (!empty) state.convs.push(c);
-        switchTo(c.id);
-        const q = `Tell me about ${t2} and how it connects to ${t.name}.`;
-        if (state.busy) {
-          input.value = q;
-          autosize();
-        } else ask(q, c);
-      },
-    });
+  function renderHistory() {
+    const chats = state.convs
+      .filter((c) => c.messages.length)
+      .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+    const where = state.topic ? `in the topic “${esc(state.topic.name)}”` : `about “${esc(title)}”`;
+    messagesEl.innerHTML = chats.length
+      ? `<div class="history"><h4>Chats ${where}</h4><ul>${chats
+          .map((c) => {
+            const questions = c.messages.filter((m) => m.role === 'user').length;
+            return `<li class="${c.id === conv()?.id ? 'here' : ''}">
+              <button class="link open-chat" data-id="${c.id}">${esc(truncate(c.title || 'Chat', 70))}</button>
+              <span class="desc">${questions} question${questions > 1 ? 's' : ''} · ${ago(c.updatedAt || c.createdAt)}${state.request === c ? ' · answering…' : ''}</span>
+              <button class="icon delete-chat" data-id="${c.id}" title="Delete chat" aria-label="Delete chat">×</button>
+            </li>`;
+          })
+          .join('')}</ul></div>`
+      : `<div class="history"><p class="why">No saved chats ${where} yet.</p></div>`;
   }
 
   const W_ADDED = 'Added by you';
@@ -704,26 +792,25 @@
 
   function render(restoreScroll = false) {
     const c = conv();
-    if (!c) return;
-    const branchFrom = c.parentId
-      ? `<div class="branch-from">Continued from ${convById(c.parentId) ? `<button class="link goto-conv" data-id="${c.parentId}">“${W.markdown.esc(truncate(c.parentTitle || 'previous chat', 60))}”</button>` : `“${W.markdown.esc(truncate(c.parentTitle || 'a closed chat', 60))}”`}</div>`
-      : '';
+    if (!c || state.view !== 'chat') return;
+    if (state.historyOpen) return renderHistory();
     if (!c.messages.length) {
-      const esc = W.markdown.esc;
       const t = state.topic;
       const intro = t
         ? `Ask anything about <strong>${esc(t.name)}</strong>: answers search all ${t.pages.length} articles in the topic.`
         : `Ask anything about <strong>${esc(title)}</strong> or the articles it links to. Select text in the article to ask about a passage.`;
-      messagesEl.innerHTML = `${branchFrom}
+      const open = unexplored().reduce((n, g) => n + g.items.length, 0);
+      messagesEl.innerHTML = `
         <div class="empty">
           <p>${intro}</p>
-          ${(t ? topicSuggestions(t) : SUGGESTIONS).map((s) => `<button class="suggestion">${esc(s)}</button>`).join('')}
+          ${(t ? topicSuggestions(t) : SUGGESTIONS).map((q) => `<button class="suggestion">${esc(q)}</button>`).join('')}
+          ${open ? `<p class="why">${open} suggested question${open > 1 ? 's' : ''} from earlier chats are waiting in <button class="link go-topic">Topic › Questions to explore</button>.</p>` : ''}
         </div>`;
       return;
     }
     const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
     const scrollTop = messagesEl.scrollTop;
-    messagesEl.innerHTML = branchFrom + c.messages.map(renderMessage).join('');
+    messagesEl.innerHTML = c.messages.map(renderMessage).join('');
     messagesEl.scrollTop = restoreScroll ? c.scrollTop ?? messagesEl.scrollHeight : atBottom ? messagesEl.scrollHeight : scrollTop;
   }
 
@@ -783,12 +870,14 @@
     const cited = m.pending ? [] : W.markdown.citedNumbers(m.content || '').filter(known);
     const sources = cited.length ? renderSourceGroups(cited) : '';
     const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}</div>` : '';
+    const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
     const followups = !m.pending && m.followups?.length
       ? `<div class="followups"><div class="fu-label">Ask next</div>${m.followups
-          .map((q) => {
-            const opened = convById(m.branches?.[q]);
-            return `<button class="followup${opened ? ' opened' : ''}" data-i="${i}" data-q="${W.markdown.esc(q)}" title="${opened ? 'Go to its tab' : 'Ask in a new tab'}">${W.markdown.esc(q)}${opened ? '<span class="fu-tab">open tab ›</span>' : ''}</button>`;
-          })
+          .map((q) =>
+            askedHere.has(normQ(q))
+              ? `<div class="followup asked"><span aria-hidden="true">✓</span> ${esc(q)}</div>`
+              : `<button class="followup" data-q="${esc(q)}">${esc(q)}</button>`
+          )
           .join('')}</div>`
       : '';
     return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${status}${error}${sources}${meta}${followups}</div>`;
@@ -836,7 +925,7 @@
         m.error = 'Connection to the extension was lost. Try again.';
         state.request = null;
         setBusy(false);
-        renderTabs();
+        renderChatBar();
         render();
       }
     });
@@ -850,8 +939,6 @@
       if (msg.type === 'topicBuilt') {
         state.building = null;
         state.topic = msg.topic;
-        state.topicOpen = true;
-        state.topicView = 'map';
         refreshTopic();
       }
       if (msg.type === 'topicError') {
@@ -869,7 +956,8 @@
       state.request = null;
       setBusy(false);
       saveConv(c);
-      renderTabs();
+      renderChatBar();
+      if (state.view === 'topic') renderTopic(); // new suggestions for "Questions to explore"
     };
     switch (msg.type) {
       case 'status':
@@ -926,7 +1014,7 @@
     input.value = '';
     autosize();
     setBusy(true);
-    renderTabs();
+    renderChatBar();
     render();
     connect().postMessage({
       type: 'ask',
@@ -976,7 +1064,10 @@
   launcher.addEventListener('click', () => setOpen(true));
   $('.close').addEventListener('click', () => setOpen(false));
   $('.settings').addEventListener('click', openOptions);
-  $('.new').addEventListener('click', newTab);
+  $('.new').addEventListener('click', () => {
+    if (state.view !== 'chat') setView('chat');
+    newChat();
+  });
 
   $('.composer').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1013,39 +1104,30 @@
     else if (t.matches('.clear-quote')) setQuote(null);
     else if (t.matches('.close-preview')) previewEl.hidden = true;
     else if (t.matches('.show-in-page')) highlightSource(conv().sources[Number(previewEl.dataset.n) - 1]);
-    else if (t.matches('.followup')) openFollowup(conv().id, Number(t.dataset.i), t.dataset.q);
-    else if (t.matches('.tab-btn')) switchTo(t.dataset.id);
-    else if (t.matches('.tab-close')) closeTab(t.dataset.id);
-    else if (t.matches('.tab-new')) newTab();
-    else if (t.matches('.goto-conv')) switchTo(t.dataset.id);
-    else if (t.matches('.open-map')) showMap();
+    else if (t.matches('.view-btn')) setView(t.dataset.view);
+    else if (t.matches('.explore-q')) askSuggested(t.dataset.q, convById(t.dataset.conv) || conv());
+    else if (t.matches('.followup')) askSuggested(t.dataset.q);
+    else if (t.matches('.history-toggle')) {
+      state.historyOpen = !state.historyOpen;
+      renderChatBar();
+      render(true);
+    } else if (t.matches('.new-chat')) newChat();
+    else if (t.matches('.open-chat')) openChat(t.dataset.id);
+    else if (t.matches('.delete-chat')) {
+      if (confirm('Delete this chat? This can\'t be undone.')) deleteChat(t.dataset.id);
+    } else if (t.matches('.go-map')) setView('map');
+    else if (t.matches('.go-topic')) setView('topic');
     else if (t.matches('.open-settings')) openOptions();
     else if (t.matches('.reload-page')) location.reload();
-    else if (t.matches('.build-topic, .rebuild-topic')) buildTopic();
-    else if (t.matches('.stop-topic')) state.port?.postMessage({ type: 'stopTopic' });
-    else if (t.matches('.toggle-topic')) {
-      state.topicOpen = !state.topicOpen;
-      state.topicView = 'map';
-      renderTopic();
-    } else if (t.matches('.show-saved')) {
-      state.topicOpen = true;
-      state.topicView = 'saved';
-      renderTopic();
-    } else if (t.matches('.back-to-map')) {
-      state.topicView = 'map';
-      renderTopic();
-    } else if (t.matches('.close-saved')) {
-      state.topicOpen = false;
-      renderTopic();
-    } else if (t.matches('.add-page')) topicAction(() => send({ type: 'topics:addPage', id: state.topic.id, title }));
+    else if (t.matches('.build-topic, .rebuild-topic')) {
+      if (state.view !== 'topic') setView('topic');
+      buildTopic();
+    } else if (t.matches('.stop-topic')) state.port?.postMessage({ type: 'stopTopic' });
+    else if (t.matches('.add-page')) topicAction(() => send({ type: 'topics:addPage', id: state.topic.id, title }));
     else if (t.matches('.remove-page')) topicAction(() => send({ type: 'topics:removePage', id: state.topic.id, title: t.dataset.title }));
-    else if (t.matches('.leave-topic')) {
-      state.topicOpen = false;
-      topicAction(() => send({ type: 'topics:setActive', id: null }));
-    } else if (t.matches('.open-topic')) {
-      state.topicView = 'map';
-      topicAction(() => send({ type: 'topics:setActive', id: t.dataset.id }));
-    } else if (t.matches('.delete-topic')) {
+    else if (t.matches('.leave-topic')) topicAction(() => send({ type: 'topics:setActive', id: null }));
+    else if (t.matches('.open-topic')) topicAction(() => send({ type: 'topics:setActive', id: t.dataset.id }));
+    else if (t.matches('.delete-topic')) {
       const name = state.savedTopics.find((x) => x.id === t.dataset.id)?.name;
       if (confirm(`Delete the topic “${name}”? This can't be undone.`)) topicAction(() => send({ type: 'topics:delete', id: t.dataset.id }));
     }

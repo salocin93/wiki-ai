@@ -97,39 +97,59 @@
     return { nodes, edges };
   }
 
-  // colorOf(page) → class name c0…c5, shared with the sidebar's citation colors.
-  function open({ root, topic, currentTitle, rightInset, colorOf, onOpenArticle, onAsk }) {
-    root.querySelector('.map-overlay')?.remove();
+  // Full-size map over the article area, next to the sidebar. Returns a function that closes it.
+  function open(opts) {
+    opts.root.querySelector('.map-overlay')?.remove();
     const overlay = document.createElement('div');
     overlay.className = 'map-overlay';
-    overlay.style.right = `${rightInset}px`;
+    overlay.style.right = `${opts.rightInset || 0}px`;
     overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-label', `Map of the topic ${topic.name}`);
-    root.appendChild(overlay);
+    overlay.setAttribute('aria-label', `Map of the topic ${opts.topic.name}`);
+    opts.root.appendChild(overlay);
+    return draw(overlay, opts, true);
+  }
 
-    const w = Math.max(320, window.innerWidth - rightInset);
-    const h = Math.max(300, window.innerHeight - 56);
-    const { nodes, edges } = layout(topic, w, h);
-    const neighbors = nodes.map(() => new Set());
-    edges.forEach(([i, j], e) => {
-      neighbors[i].add(j);
-      neighbors[j].add(i);
-    });
+  // Map inside a container (the sidebar's Map tab). Returns a function that removes it.
+  function mount(container, opts) {
+    container.classList.add('map-inline');
+    return draw(container, opts, false);
+  }
 
+  // colorOf(page) → class name c0…c5, shared with the sidebar's citation colors.
+  function draw(box, { topic, currentTitle, colorOf, onOpenArticle, onAsk, onExpand }, isOverlay) {
     const legend = topic.facets
       .map((f) => {
         const page = topic.pages.find((p) => p.facet === f.name);
         return page ? `<button class="legend-item ${colorOf(page)}" data-facet="${esc(f.name)}"><span class="swatch"></span>${esc(f.name)}</button>` : '';
       })
       .join('');
-
-    overlay.innerHTML = `
+    box.innerHTML = `
       <div class="map-head">
-        <div class="map-title"><strong>${esc(topic.name)}</strong><span>${nodes.length} articles · ${edges.length} links between them</span></div>
+        <div class="map-title"><strong>${esc(topic.name)}</strong><span class="map-meta"></span></div>
         <div class="legend">${legend}</div>
-        <button class="icon map-close" title="Close map (Esc)" aria-label="Close map">×</button>
+        ${
+          isOverlay
+            ? '<button class="icon map-close" title="Close map (Esc)" aria-label="Close map">×</button>'
+            : '<button class="icon map-expand" title="Enlarge map" aria-label="Enlarge map"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>'
+        }
       </div>
-      <svg class="map-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Graph of the topic's articles">
+      <svg class="map-svg" role="img" aria-label="Graph of the topic's articles"></svg>
+      <div class="map-card" hidden></div>
+      <div class="map-hint">${isOverlay ? 'Hover to see connections · click for details · scroll to zoom · drag to move' : 'Click for details · scroll to zoom'}</div>`;
+
+    const svg = box.querySelector('svg.map-svg');
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(280, Math.round(rect.width) || 400);
+    const h = Math.max(240, Math.round(rect.height) || 400);
+    const { nodes, edges } = layout(topic, w, h);
+    const neighbors = nodes.map(() => new Set());
+    edges.forEach(([i, j]) => {
+      neighbors[i].add(j);
+      neighbors[j].add(i);
+    });
+    box.querySelector('.map-meta').textContent = `${nodes.length} articles · ${edges.length} links between them`;
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.innerHTML = `
         <g class="edges">${edges
           .map(([i, j], e) => `<line data-e="${e}" x1="${nodes[i].x.toFixed(1)}" y1="${nodes[i].y.toFixed(1)}" x2="${nodes[j].x.toFixed(1)}" y2="${nodes[j].y.toFixed(1)}"/>`)
           .join('')}</g>
@@ -140,13 +160,9 @@
               <text y="${(n.r + 13).toFixed(1)}">${esc(n.id.length > 34 ? n.id.slice(0, 33) + '…' : n.id)}</text>
             </g>`
           )
-          .join('')}</g>
-      </svg>
-      <div class="map-card" hidden></div>
-      <div class="map-hint">Hover to see connections · click for details · scroll to zoom · drag to move</div>`;
+          .join('')}</g>`;
 
-    const svg = overlay.querySelector('svg');
-    const card = overlay.querySelector('.map-card');
+    const card = box.querySelector('.map-card');
     const lines = [...svg.querySelectorAll('line')];
     const nodeEls = [...svg.querySelectorAll('.node')];
     let selected = null;
@@ -186,7 +202,7 @@
         <p class="card-links">${linked.length ? `Linked with ${linked.length} other article${linked.length > 1 ? 's' : ''} in this topic: ${linked.slice(0, 6).map(esc).join(', ')}${linked.length > 6 ? '…' : ''}` : 'Not linked with the other articles.'}</p>
         <div class="card-actions">
           ${n.id === currentTitle ? '<span class="tag">You are reading this article</span>' : `<button class="primary open-article">Open article</button>`}
-          <button class="ask-article">Ask about it in a new tab</button>
+          <button class="ask-article">Ask about it in the chat</button>
         </div>`;
     }
 
@@ -254,7 +270,8 @@
     });
 
     function close() {
-      overlay.remove();
+      if (isOverlay) box.remove();
+      else box.innerHTML = '';
       document.removeEventListener('keydown', onKey, true);
     }
     const onKey = (e) => {
@@ -264,20 +281,21 @@
         else close();
       }
     };
-    document.addEventListener('keydown', onKey, true);
+    if (isOverlay) document.addEventListener('keydown', onKey, true);
 
-    overlay.addEventListener('click', (e) => {
+    box.addEventListener('click', (e) => {
       const t = e.target.closest('button');
       if (!t) return;
       if (t.matches('.map-close')) close();
+      else if (t.matches('.map-expand')) onExpand?.();
       else if (t.matches('.card-close')) select(null);
       else if (t.matches('.open-article')) onOpenArticle(nodes[selected].id);
       else if (t.matches('.ask-article')) {
         onAsk(nodes[selected].id);
-        close();
+        if (isOverlay) close();
       } else if (t.matches('.legend-item')) {
         themeFilter = themeFilter === t.dataset.facet ? null : t.dataset.facet;
-        overlay.querySelectorAll('.legend-item').forEach((b) => b.classList.toggle('active', b.dataset.facet === themeFilter));
+        box.querySelectorAll('.legend-item').forEach((b) => b.classList.toggle('active', b.dataset.facet === themeFilter));
         select(null);
       }
     });
@@ -285,5 +303,5 @@
     return close;
   }
 
-  W.topicMap = { open, layout };
+  W.topicMap = { open, mount, layout };
 })(globalThis);
