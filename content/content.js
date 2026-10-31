@@ -1,0 +1,534 @@
+// Sidebar UI on Wikipedia articles: chat, clickable citations, "ask about this" on selected text.
+(() => {
+  if (window.__wikiai) return;
+  window.__wikiai = true;
+
+  const W = globalThis.WikiAI;
+  const article = document.querySelector('#mw-content-text .mw-parser-output');
+  if (!article || !document.body.classList.contains('ns-0')) return; // only main-namespace articles
+
+  const canonical = document.querySelector('link[rel=canonical]')?.href || location.href;
+  const lang = new URL(canonical).hostname.split('.')[0];
+  const title = decodeURIComponent(canonical.split('/wiki/')[1].split(/[#?]/)[0]).replace(/_/g, ' ');
+  const PANEL_WIDTH = 420;
+
+  const state = {
+    open: false,
+    busy: false,
+    messages: [], // {role, content, reasoning, steps[], status, error, model}
+    sources: [],
+    quote: null, // {text, section}
+    port: null,
+    links: null,
+  };
+
+  // ---------- Page reading helpers ----------
+
+  const NON_ARTICLE_NS = /^(File|Image|Help|Special|Wikipedia|Template|Category|Portal|Talk|Module|Draft|User|MediaWiki|Book|Media|WP|Template talk|User talk)(:)/i;
+  const SKIP_LINK_AREAS = '.navbox, .reflist, .references, .mw-references-wrap, sup.reference, .mw-editsection, .sistersitebox, .hatnote, .shortdescription';
+
+  const headingText = (h) => (h.querySelector('.mw-headline')?.textContent || h.textContent).replace(/\[edit\]$/, '').trim();
+  const headings = () => [...article.querySelectorAll('h2, h3, h4')];
+
+  function sectionOf(node) {
+    let name = 'Introduction';
+    for (const h of headings()) {
+      if (h.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) name = headingText(h);
+      else break;
+    }
+    return name;
+  }
+
+  function visibleSection() {
+    let name = 'Introduction';
+    for (const h of headings()) {
+      if (h.getBoundingClientRect().top < window.innerHeight * 0.35) name = headingText(h);
+      else break;
+    }
+    return name;
+  }
+
+  function cleanText(el) {
+    return el.textContent.replace(/\[\d+\]|\[citation needed\]|\[[a-z]\]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  function contextSentence(a) {
+    const block = a.closest('p, li, td, th, dd, figcaption, caption');
+    if (!block) return a.textContent.trim();
+    const text = cleanText(block);
+    const i = text.indexOf(a.textContent.trim());
+    if (i < 0) return text.slice(0, 240);
+    const before = text.lastIndexOf('. ', i);
+    const start = Math.max(before < 0 ? 0 : before + 2, i - 200);
+    const after = text.indexOf('. ', i + a.textContent.length);
+    const end = Math.min(after < 0 ? text.length : after + 1, i + 260);
+    return text.slice(start, end);
+  }
+
+  function collectLinks() {
+    if (state.links) return state.links;
+    const map = new Map();
+    let section = 'Introduction';
+    for (const el of article.querySelectorAll('h2, h3, h4, a[href]')) {
+      if (el.tagName !== 'A') {
+        section = headingText(el);
+        continue;
+      }
+      if (el.classList.contains('mw-selflink') || el.closest(SKIP_LINK_AREAS)) continue;
+      const url = new URL(el.href, location.href);
+      const m = url.pathname.match(/^\/wiki\/([^#?]+)/);
+      if (!m || !url.hostname.endsWith('wikipedia.org') || url.search) continue; // skips red links (?action=edit)
+      const target = decodeURIComponent(m[1]).replace(/_/g, ' ');
+      if (NON_ARTICLE_NS.test(target) || target === title) continue;
+      const entry = map.get(target) || { title: target, count: 0, contexts: [], sections: [], anchors: [] };
+      entry.count++;
+      const anchor = el.textContent.trim();
+      if (anchor && anchor !== target && !entry.anchors.includes(anchor) && entry.anchors.length < 3) entry.anchors.push(anchor);
+      if (entry.contexts.length < 2) entry.contexts.push(contextSentence(el));
+      if (!entry.sections.includes(section) && entry.sections.length < 3) entry.sections.push(section);
+      map.set(target, entry);
+    }
+    state.links = [...map.values()].map((e) => ({ title: e.title, anchors: e.anchors, count: e.count, context: e.contexts.join(' … '), sections: e.sections }));
+    return state.links;
+  }
+
+  // ---------- Highlighting a cited passage in the page ----------
+
+  let textMap = null;
+  function buildTextMap() {
+    if (textMap) return textMap;
+    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) =>
+        n.parentElement?.closest('sup.reference, .mw-editsection, style, script, .navbox, .reflist, .mw-references-wrap')
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT,
+    });
+    let text = '';
+    const nodes = [];
+    const offsets = [];
+    let space = true;
+    for (let n; (n = walker.nextNode()); ) {
+      const d = n.data;
+      for (let i = 0; i < d.length; i++) {
+        let ch = d[i];
+        if (/\s/.test(ch)) {
+          if (space) continue;
+          ch = ' ';
+          space = true;
+        } else space = false;
+        text += ch.toLowerCase();
+        nodes.push(n);
+        offsets.push(i);
+      }
+    }
+    textMap = { text, nodes, offsets };
+    return textMap;
+  }
+
+  const norm = (s) => s.replace(/\s+/g, ' ').toLowerCase().trim();
+
+  function locate(sourceText) {
+    const map = buildTextMap();
+    const sentences = (sourceText.match(/[^.!?]+[.!?]*/g) || [sourceText]).map(norm).filter((s) => s.length > 20);
+    let start = -1;
+    for (const s of sentences.slice(0, 6)) {
+      for (const probe of [s.slice(0, 60), s.slice(0, 30), s.slice(Math.floor(s.length / 2), Math.floor(s.length / 2) + 30)]) {
+        if (probe.length < 15) continue;
+        start = map.text.indexOf(probe);
+        if (start >= 0) break;
+      }
+      if (start >= 0) break;
+    }
+    if (start < 0) return null;
+    let end = start + Math.min(norm(sourceText).length, 400);
+    const tail = norm(sourceText).slice(-40);
+    const tailAt = map.text.indexOf(tail, start);
+    if (tailAt >= 0 && tailAt - start < 4000) end = tailAt + tail.length;
+    end = Math.min(end, map.text.length);
+    const range = document.createRange();
+    range.setStart(map.nodes[start], map.offsets[start]);
+    range.setEnd(map.nodes[end - 1], map.offsets[end - 1] + 1);
+    return range;
+  }
+
+  function highlightSource(src) {
+    let range = null;
+    try {
+      range = locate(src.text);
+    } catch {}
+    if (range) {
+      if (globalThis.CSS?.highlights && globalThis.Highlight) CSS.highlights.set('wikiai-cite', new Highlight(range));
+      const el = range.startContainer.parentElement;
+      openCollapsedAncestors(el);
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return true;
+    }
+    const h = headings().find((x) => headingText(x) === src.section.split(' › ').pop());
+    if (h) {
+      openCollapsedAncestors(h);
+      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return true;
+    }
+    return false;
+  }
+
+  function openCollapsedAncestors(el) {
+    for (let d = el.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true;
+  }
+
+  function linkedUrl(src) {
+    const words = src.text.replace(/\s+/g, ' ').split(' ').slice(0, 6).join(' ');
+    const slug = encodeURIComponent(src.page.replace(/ /g, '_'));
+    return `https://${src.lang}.wikipedia.org/wiki/${slug}#:~:text=${encodeURIComponent(words)}`;
+  }
+
+  // ---------- UI ----------
+
+  const host = document.createElement('div');
+  host.id = 'wikiai-host';
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `
+    <link rel="stylesheet" href="${chrome.runtime.getURL('content/sidebar.css')}">
+    <button class="launcher" title="Ask about this article (Alt+Shift+W)" aria-label="Open Wiki AI">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+    </button>
+    <button class="ask-selection" hidden>Ask about this</button>
+    <aside class="panel" hidden>
+      <header>
+        <div class="titles">
+          <div class="name">Wiki AI</div>
+          <div class="sub"></div>
+        </div>
+        <button class="icon new" title="New conversation" aria-label="New conversation">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button class="icon settings" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+        <button class="icon close" title="Close" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="messages" role="log" aria-live="polite"></div>
+      <div class="preview" hidden></div>
+      <form class="composer">
+        <div class="quote" hidden></div>
+        <div class="row">
+          <textarea rows="1" placeholder="Ask about this article…"></textarea>
+          <button type="submit" class="send" title="Send" aria-label="Send">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </form>
+    </aside>`;
+  document.documentElement.appendChild(host);
+
+  // Highlight style has to live in the page, outside the shadow root.
+  const pageStyle = document.createElement('style');
+  pageStyle.textContent = `
+    ::highlight(wikiai-cite) { background-color: rgba(255, 196, 0, 0.45); color: inherit; }
+    html.wikiai-open body { margin-right: ${PANEL_WIDTH}px !important; }
+    html.wikiai-open .vector-sticky-header { right: ${PANEL_WIDTH}px !important; width: auto !important; }`;
+  document.head.appendChild(pageStyle);
+
+  const $ = (sel) => root.querySelector(sel);
+  const panel = $('.panel');
+  const launcher = $('.launcher');
+  const messagesEl = $('.messages');
+  const input = $('textarea');
+  const sendBtn = $('.send');
+  const quoteEl = $('.quote');
+  const previewEl = $('.preview');
+  const askSelBtn = $('.ask-selection');
+  $('.sub').textContent = title;
+
+  function syncTheme() {
+    const cls = document.documentElement.classList;
+    const dark =
+      cls.contains('skin-theme-clientpref-night') ||
+      (cls.contains('skin-theme-clientpref-os') && matchMedia('(prefers-color-scheme: dark)').matches);
+    host.dataset.theme = dark ? 'dark' : 'light';
+  }
+  syncTheme();
+  new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
+
+  function setOpen(open) {
+    state.open = open;
+    panel.hidden = !open;
+    launcher.hidden = open;
+    document.documentElement.classList.toggle('wikiai-open', open);
+    if (open) {
+      render();
+      setTimeout(() => input.focus(), 0);
+    }
+  }
+
+  const SUGGESTIONS = [
+    'Summarize this article in a few bullet points',
+    'Explain the section I am reading',
+    'Which linked articles should I read next, and why?',
+  ];
+
+  function render() {
+    if (!state.messages.length) {
+      messagesEl.innerHTML = `
+        <div class="empty">
+          <p>Ask anything about <strong>${W.markdown.esc(title)}</strong> or the articles it links to. Select text in the article to ask about a passage.</p>
+          ${SUGGESTIONS.map((s) => `<button class="suggestion">${W.markdown.esc(s)}</button>`).join('')}
+        </div>`;
+      return;
+    }
+    messagesEl.innerHTML = state.messages.map(renderMessage).join('');
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  const known = (n) => n >= 1 && n <= state.sources.length;
+
+  function renderMessage(m, i) {
+    if (m.role === 'user') {
+      const quote = m.quote ? `<blockquote>${W.markdown.esc(m.quote.text.slice(0, 280))}${m.quote.text.length > 280 ? '…' : ''}</blockquote>` : '';
+      return `<div class="msg user">${quote}<div class="bubble">${W.markdown.esc(m.content)}</div></div>`;
+    }
+    const steps = m.steps?.length
+      ? `<details class="steps"${m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${W.markdown.esc(s)}</li>`).join('')}</ul></details>`
+      : '';
+    const reasoning = m.reasoning ? `<details class="reasoning"><summary>Thinking</summary><div>${W.markdown.esc(m.reasoning)}</div></details>` : '';
+    const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known)}</div>` : '';
+    const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.markdown.esc(m.status || 'Thinking')}</div>` : '';
+    const error = m.error
+      ? `<div class="error">${W.markdown.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}</div>`
+      : '';
+    const cited = m.pending ? [] : W.markdown.citedNumbers(m.content || '').filter(known);
+    const sources = cited.length
+      ? `<div class="sources">${cited
+          .map((n) => {
+            const s = state.sources[n - 1];
+            const where = s.current ? s.section : `${s.page} › ${s.section}`;
+            return `<button class="source" data-n="${n}" title="${W.markdown.esc(s.text.slice(0, 200))}"><span class="num">${n}</span><span class="where${s.current ? '' : ' linked'}">${W.markdown.esc(where)}</span></button>`;
+          })
+          .join('')}</div>`
+      : '';
+    const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}</div>` : '';
+    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${status}${error}${sources}${meta}</div>`;
+  }
+
+  // Re-render at most every 40 ms while tokens stream in (a timer, so it also runs in background tabs).
+  let renderTimer = 0;
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => {
+      renderTimer = 0;
+      render();
+    }, 40);
+  }
+
+  function setQuote(quote) {
+    state.quote = quote;
+    quoteEl.hidden = !quote;
+    if (quote) {
+      quoteEl.innerHTML = `<span class="label">Selected text${quote.section ? ` · ${W.markdown.esc(quote.section)}` : ''}</span><span class="text">${W.markdown.esc(quote.text.slice(0, 200))}${quote.text.length > 200 ? '…' : ''}</span><button type="button" class="icon clear-quote" aria-label="Remove selection">×</button>`;
+      input.placeholder = 'Ask about the selected text…';
+    } else input.placeholder = 'Ask about this article…';
+  }
+
+  function setBusy(busy) {
+    state.busy = busy;
+    sendBtn.classList.toggle('stop', busy);
+    sendBtn.title = busy ? 'Stop' : 'Send';
+    sendBtn.innerHTML = busy
+      ? '<svg viewBox="0 0 24 24" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>'
+      : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  }
+
+  function connect() {
+    if (state.port) return state.port;
+    const port = chrome.runtime.connect({ name: 'wikiai-chat' });
+    port.onMessage.addListener(onAgentMessage);
+    port.onDisconnect.addListener(() => {
+      state.port = null;
+      const m = state.messages[state.messages.length - 1];
+      if (state.busy && m?.pending) {
+        m.pending = false;
+        m.error = 'Connection to the extension was lost. Try again.';
+        setBusy(false);
+        render();
+      }
+    });
+    state.port = port;
+    return port;
+  }
+
+  function onAgentMessage(msg) {
+    const m = state.messages[state.messages.length - 1];
+    if (!m || m.role !== 'assistant') return;
+    switch (msg.type) {
+      case 'status':
+        m.status = msg.text;
+        break;
+      case 'step':
+        m.steps.push(msg.text);
+        m.status = msg.text;
+        break;
+      case 'stream':
+        m.content = msg.answer;
+        if (msg.reasoning) m.reasoning = msg.reasoning;
+        break;
+      case 'sources':
+        state.sources = msg.sources;
+        break;
+      case 'done':
+        m.pending = false;
+        if (msg.answer) m.content = msg.answer;
+        if (msg.model) m.model = msg.model;
+        if (msg.stopped && !m.content) m.error = 'Stopped.';
+        setBusy(false);
+        break;
+      case 'error':
+        m.pending = false;
+        m.error = msg.message;
+        setBusy(false);
+        break;
+    }
+    scheduleRender();
+  }
+
+  function ask(question) {
+    question = question.trim();
+    if (!question || state.busy) return;
+    const history = state.messages
+      .filter((m) => !m.error && m.content)
+      .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : m.content }));
+    const quote = state.quote;
+    state.messages.push({ role: 'user', content: question, quote });
+    state.messages.push({ role: 'assistant', content: '', steps: [], pending: true, status: 'Starting' });
+    setQuote(null);
+    input.value = '';
+    autosize();
+    setBusy(true);
+    render();
+    connect().postMessage({
+      type: 'ask',
+      question,
+      history,
+      sources: state.sources,
+      page: { lang, title, url: canonical, links: collectLinks(), visibleSection: visibleSection(), selection: quote },
+    });
+  }
+
+  function showPreview(src) {
+    previewEl.hidden = false;
+    previewEl.innerHTML = `
+      <div class="preview-head">
+        <span class="num">${src.n}</span>
+        <span class="where">${W.markdown.esc(src.current ? src.section : `${src.page} › ${src.section}`)}</span>
+        <button class="icon close-preview" aria-label="Close preview">×</button>
+      </div>
+      <div class="preview-text">${W.markdown.esc(src.text)}</div>
+      <div class="preview-actions">
+        ${src.current ? '<button class="link show-in-page">Show in article</button>' : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener">Open “${W.markdown.esc(src.page)}” ↗</a>`}
+      </div>`;
+    previewEl.dataset.n = src.n;
+  }
+
+  function onCite(n) {
+    const src = state.sources[n - 1];
+    if (!src) return;
+    if (src.current) {
+      const found = highlightSource(src);
+      if (found) previewEl.hidden = true;
+      else showPreview(src);
+    } else showPreview(src);
+  }
+
+  function autosize() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+  }
+
+  // ---------- Events ----------
+
+  launcher.addEventListener('click', () => setOpen(true));
+  $('.close').addEventListener('click', () => setOpen(false));
+  $('.settings').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'openOptions' }));
+  $('.new').addEventListener('click', () => {
+    if (state.busy) state.port?.postMessage({ type: 'stop' });
+    state.messages = [];
+    state.sources = [];
+    previewEl.hidden = true;
+    CSS.highlights?.delete('wikiai-cite');
+    setQuote(null);
+    setBusy(false);
+    render();
+  });
+
+  $('.composer').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (state.busy) state.port?.postMessage({ type: 'stop' });
+    else ask(input.value);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      if (!state.busy) ask(input.value);
+    }
+    e.stopPropagation(); // keep Wikipedia's keyboard shortcuts out of the textarea
+  });
+  input.addEventListener('input', autosize);
+
+  root.addEventListener('click', (e) => {
+    const t = e.target.closest('button, a');
+    if (!t) return;
+    if (t.matches('.cite, .source')) onCite(Number(t.dataset.n));
+    else if (t.matches('.suggestion')) ask(t.textContent);
+    else if (t.matches('.clear-quote')) setQuote(null);
+    else if (t.matches('.close-preview')) previewEl.hidden = true;
+    else if (t.matches('.show-in-page')) highlightSource(state.sources[Number(previewEl.dataset.n) - 1]);
+    else if (t.matches('.open-settings')) chrome.runtime.sendMessage({ type: 'openOptions' });
+  });
+
+  // "Ask about this" button next to a text selection in the article.
+  let pendingSelection = null;
+  document.addEventListener('mouseup', (e) => {
+    if (e.composedPath().includes(host)) return;
+    setTimeout(() => {
+      const sel = getSelection();
+      const text = sel?.toString().trim();
+      if (!sel || sel.isCollapsed || !text || text.length < 3 || !article.contains(sel.anchorNode)) {
+        askSelBtn.hidden = true;
+        return;
+      }
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      pendingSelection = { text: text.slice(0, 2000), section: sectionOf(sel.anchorNode) };
+      askSelBtn.hidden = false;
+      const below = rect.bottom + 44 < window.innerHeight;
+      askSelBtn.style.top = `${below ? rect.bottom + 8 : rect.top - 40}px`;
+      askSelBtn.style.left = `${Math.min(Math.max(8, rect.left + rect.width / 2 - 60), window.innerWidth - (state.open ? PANEL_WIDTH : 0) - 140)}px`;
+    }, 0);
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (!e.composedPath().includes(host)) askSelBtn.hidden = true;
+  });
+  askSelBtn.addEventListener('mousedown', (e) => e.preventDefault()); // keep the selection
+  askSelBtn.addEventListener('click', () => {
+    askSelBtn.hidden = true;
+    if (pendingSelection) setQuote(pendingSelection);
+    setOpen(true);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') CSS.highlights?.delete('wikiai-cite');
+  });
+
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'toggle') setOpen(!state.open);
+    if (msg.type === 'askSelection') {
+      const sel = getSelection();
+      const anchor = sel && !sel.isCollapsed ? sel.anchorNode : null;
+      setQuote({ text: msg.text.slice(0, 2000), section: anchor && article.contains(anchor) ? sectionOf(anchor) : '' });
+      setOpen(true);
+    }
+  });
+
+  render();
+})();

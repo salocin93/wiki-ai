@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Wiki AI",
+  "version": "0.1.0",
+  "description": "Chat with a local LLM about the Wikipedia article you're reading and the articles it links to.",
+  "permissions": ["storage", "contextMenus"],
+  "host_permissions": [
+    "https://*.wikipedia.org/*",
+    "https://*.ts.net/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "action": {
+    "default_title": "Toggle Wiki AI"
+  },
+  "commands": {
+    "toggle-sidebar": {
+      "suggested_key": { "default": "Alt+Shift+W" },
+      "description": "Toggle the Wiki AI sidebar"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.wikipedia.org/wiki/*"],
+      "js": ["content/markdown.js", "content/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/sidebar.css"],
+      "matches": ["https://*.wikipedia.org/*"]
+    }
+  ],
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  }
+}
