@@ -30,14 +30,37 @@ document.getElementById('save').addEventListener('click', async () => {
   show('Saved.');
 });
 
+// Sends a one-token request: gateways can route models (e.g. a "pc/*" wildcard) that /models doesn't list.
+async function probe(settings, model) {
+  const res = await fetch(`${settings.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) },
+    body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+    signal: AbortSignal.timeout(150_000), // the model may have to load first
+  });
+  if (res.ok) return 'answers';
+  return res.status === 503 ? 'unavailable right now (503, e.g. the machine is off)' : `error ${res.status}`;
+}
+
 document.getElementById('test').addEventListener('click', async () => {
+  const settings = { ...W.settings.DEFAULTS, ...read() };
   show('Connecting…');
   try {
-    const models = await W.llm.listModels({ ...W.settings.DEFAULTS, ...read() });
-    document.getElementById('models').innerHTML = models.map((m) => `<option value="${m}">`).join('');
-    const { model, fallbackModel } = read();
-    const missing = [model, fallbackModel].filter((m) => m && !models.includes(m));
-    show(`Connected: ${models.length} models.${missing.length ? ` Not listed: ${missing.join(', ')}` : ''}`, missing.length > 0);
+    const models = await W.llm.listModels(settings);
+    // Offer the usable names; the gateway also lists aliases meant for other clients.
+    const usable = [...new Set([settings.model, settings.fallbackModel, ...models.filter((m) => /^(pc|mac)\//.test(m))])].filter(Boolean);
+    document.getElementById('models').innerHTML = usable.map((m) => `<option value="${m}">`).join('');
+    const results = [];
+    for (const m of [settings.model, settings.fallbackModel].filter(Boolean)) {
+      if (models.includes(m)) {
+        results.push({ m, state: 'listed' });
+        continue;
+      }
+      show(`Connected. Checking ${m} (can take a minute if it has to load)…`);
+      results.push({ m, state: await probe(settings, m).catch((e) => `failed: ${e.message}`) });
+    }
+    const bad = results.filter((r) => r.state !== 'listed' && r.state !== 'answers');
+    show(`Connected. ${results.map((r) => `${r.m}: ${r.state === 'listed' ? 'available' : r.state}`).join(' · ')}`, bad.length > 0);
   } catch (e) {
     show(`Failed: ${e.message}. Is this device on the tailnet, and is the key right?`, true);
   }

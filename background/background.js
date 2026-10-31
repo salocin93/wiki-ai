@@ -5,6 +5,7 @@ importScripts(
   '../lib/bm25.js',
   '../lib/wiki.js',
   '../lib/llm.js',
+  '../lib/links.js',
   '../lib/agent.js',
   '../lib/topics.js',
   '../lib/cluster.js'

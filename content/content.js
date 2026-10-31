@@ -31,6 +31,7 @@
   // ---------- Page reading helpers ----------
 
   const NON_ARTICLE_NS = /^(File|Image|Help|Special|Wikipedia|Template|Category|Portal|Talk|Module|Draft|User|MediaWiki|Book|Media|WP|Template talk|User talk)(:)/i;
+  const BACK_MATTER = /^(see also|references|notes|footnotes|external links|further reading|bibliography|sources|citations|works cited)$/i;
   const SKIP_LINK_AREAS = '.reflist, .references, .mw-references-wrap, sup.reference, .mw-editsection, .sistersitebox, .shortdescription, .navbar';
 
   const headingText = (h) => (h.querySelector('.mw-headline')?.textContent || h.textContent).replace(/\[edit\]$/, '').trim();
@@ -107,7 +108,9 @@
     if (nav) {
       let outer = nav;
       while (outer.parentElement?.closest('.navbox')) outer = outer.parentElement.closest('.navbox');
-      const box = cleanText(outer.querySelector('.navbox-title') || outer).slice(0, 80);
+      const titleEl = (outer.querySelector('.navbox-title') || outer).cloneNode(true);
+      titleEl.querySelectorAll('.navbar').forEach((n) => n.remove()); // the "v · t · e" links
+      const box = cleanText(titleEl).slice(0, 80);
       const group = el.closest('td.navbox-list')?.previousElementSibling;
       const label = group?.matches('th.navbox-group') ? cleanText(group) : '';
       return { kind: 'navbox', box, context: `Navigation box "${box}"${label ? ` › ${label}` : ''}` };
@@ -140,24 +143,29 @@
       if (!m || !url.hostname.endsWith('wikipedia.org') || url.search) continue; // skips red links (?action=edit)
       const target = decodeURIComponent(m[1]).replace(/_/g, ' ');
       if (NON_ARTICLE_NS.test(target) || target === title) continue;
-      const entry = map.get(target) || { title: target, count: 0, contexts: [], sections: [], anchors: [], signals: new Set(), navboxes: new Set() };
-      entry.count++;
+      const entry = map.get(target) || { title: target, count: 0, prose: [], other: [], sections: [], anchors: [], signals: new Set(), navboxes: new Set() };
       const anchor = el.textContent.trim();
       if (anchor && anchor !== target && !entry.anchors.includes(anchor) && entry.anchors.length < 3) entry.anchors.push(anchor);
-      const signal = linkSignal(el);
+      let signal = linkSignal(el);
+      if (!signal && /^see also$/i.test(section)) signal = { kind: 'seealso', context: 'Listed under "See also"' };
       if (signal) {
         entry.signals.add(signal.kind);
         if (signal.box) entry.navboxes.add(signal.box);
       }
-      if (entry.contexts.length < 2) entry.contexts.push(signal?.context || contextSentence(el));
-      if (signal?.kind !== 'navbox' && !entry.sections.includes(section) && entry.sections.length < 3) entry.sections.push(section);
+      // Only mentions in the article's own text count; navigation boxes and back matter list links wholesale.
+      const inText = !signal && !BACK_MATTER.test(section);
+      if (inText || signal?.kind === 'main' || signal?.kind === 'infobox') entry.count++;
+      if (inText) {
+        if (entry.prose.length < 2) entry.prose.push(contextSentence(el));
+        if (!entry.sections.includes(section) && entry.sections.length < 3) entry.sections.push(section);
+      } else if (signal && entry.other.length < 2) entry.other.push(signal.context);
       map.set(target, entry);
     }
     state.links = [...map.values()].map((e) => ({
       title: e.title,
       anchors: e.anchors,
       count: e.count,
-      context: e.contexts.join(' … '),
+      context: [...e.prose, ...e.other].slice(0, 2).join(' … '),
       sections: e.sections,
       signals: [...e.signals],
       navboxes: [...e.navboxes],
@@ -381,7 +389,30 @@
 
   // ---------- Topic clusters ----------
 
+  // After the extension is reloaded or updated, this script stays on the page but loses its connection
+  // (chrome.runtime goes away). Show a reload prompt instead of failing on every click.
+  const extensionAlive = () => {
+    try {
+      return !!chrome.runtime?.id;
+    } catch {
+      return false;
+    }
+  };
+
+  function ensureAlive() {
+    if (extensionAlive()) return;
+    messagesEl.innerHTML = `<div class="stale">Wiki AI was updated or reloaded. <button class="link reload-page">Reload this page</button> to keep using it.</div>`;
+    topicEl.innerHTML = '';
+    throw new Error('Extension context invalidated');
+  }
+
+  function openOptions() {
+    ensureAlive();
+    chrome.runtime.sendMessage({ type: 'openOptions' });
+  }
+
   async function send(msg) {
+    ensureAlive();
     const res = await chrome.runtime.sendMessage(msg);
     if (res?.error) throw new Error(res.error);
     return res?.result;
@@ -479,6 +510,11 @@
   }
 
   function buildTopic() {
+    try {
+      ensureAlive();
+    } catch {
+      return;
+    }
     state.building = 'Starting';
     state.topicError = null;
     state.topicOpen = false;
@@ -526,8 +562,10 @@
         </div>`;
       return;
     }
+    const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
+    const scrollTop = messagesEl.scrollTop;
     messagesEl.innerHTML = state.messages.map(renderMessage).join('');
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    messagesEl.scrollTop = atBottom ? messagesEl.scrollHeight : scrollTop;
   }
 
   const known = (n) => n >= 1 && n <= state.sources.length;
@@ -575,9 +613,9 @@
       return `<div class="msg user">${quote}<div class="bubble">${W.markdown.esc(m.content)}</div></div>`;
     }
     const steps = m.steps?.length
-      ? `<details class="steps"${m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${W.markdown.esc(s)}</li>`).join('')}</ul></details>`
+      ? `<details class="steps"${m.stepsOpen ?? m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${W.markdown.esc(s)}</li>`).join('')}</ul></details>`
       : '';
-    const reasoning = m.reasoning ? `<details class="reasoning"><summary>Thinking</summary><div>${W.markdown.esc(m.reasoning)}</div></details>` : '';
+    const reasoning = m.reasoning ? `<details class="reasoning"${m.reasoningOpen ? ' open' : ''}><summary>Thinking</summary><div>${W.markdown.esc(m.reasoning)}</div></details>` : '';
     const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, citeAttrs)}</div>` : '';
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.markdown.esc(m.status || 'Thinking')}</div>` : '';
     const error = m.error
@@ -619,6 +657,7 @@
 
   function connect() {
     if (state.port) return state.port;
+    ensureAlive();
     const port = chrome.runtime.connect({ name: 'wikiai-chat' });
     port.onMessage.addListener(onAgentMessage);
     port.onDisconnect.addListener(() => {
@@ -689,6 +728,11 @@
   function ask(question) {
     question = question.trim();
     if (!question || state.busy) return;
+    try {
+      ensureAlive();
+    } catch {
+      return;
+    }
     const history = state.messages
       .filter((m) => !m.error && m.content)
       .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : m.content }));
@@ -747,7 +791,7 @@
 
   launcher.addEventListener('click', () => setOpen(true));
   $('.close').addEventListener('click', () => setOpen(false));
-  $('.settings').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'openOptions' }));
+  $('.settings').addEventListener('click', openOptions);
   $('.new').addEventListener('click', () => {
     if (state.busy) state.port?.postMessage({ type: 'stop' });
     state.messages = [];
@@ -773,6 +817,19 @@
   });
   input.addEventListener('input', autosize);
 
+  // Remember opened/closed step and thinking lists, so streaming re-renders don't snap them shut.
+  messagesEl.addEventListener(
+    'toggle',
+    (e) => {
+      const d = e.target;
+      const m = state.messages[Number(d.closest('.msg')?.dataset.i)];
+      if (!m) return;
+      if (d.classList.contains('steps')) m.stepsOpen = d.open;
+      if (d.classList.contains('reasoning')) m.reasoningOpen = d.open;
+    },
+    true
+  );
+
   root.addEventListener('click', (e) => {
     const t = e.target.closest('button, a');
     if (!t) return;
@@ -781,7 +838,8 @@
     else if (t.matches('.clear-quote')) setQuote(null);
     else if (t.matches('.close-preview')) previewEl.hidden = true;
     else if (t.matches('.show-in-page')) highlightSource(state.sources[Number(previewEl.dataset.n) - 1]);
-    else if (t.matches('.open-settings')) chrome.runtime.sendMessage({ type: 'openOptions' });
+    else if (t.matches('.open-settings')) openOptions();
+    else if (t.matches('.reload-page')) location.reload();
     else if (t.matches('.build-topic, .rebuild-topic')) buildTopic();
     else if (t.matches('.stop-topic')) state.port?.postMessage({ type: 'stopTopic' });
     else if (t.matches('.toggle-topic')) {

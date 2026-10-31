@@ -11,7 +11,7 @@
       s.onerror = reject;
       document.head.appendChild(s);
     });
-  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/wiki.js', 'lib/llm.js', 'lib/agent.js', 'lib/topics.js', 'lib/cluster.js', 'content/markdown.js']) await load(f);
+  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/agent.js', 'lib/topics.js', 'lib/cluster.js', 'content/markdown.js']) await load(f);
   const W = globalThis.WikiAI;
   const settings = { ...W.settings.DEFAULTS, model: 'fake-model' };
 
@@ -57,6 +57,7 @@
   const listeners = [];
   window.chrome = {
     runtime: {
+      id: 'wikiai-harness',
       getURL: (p) => BASE + p,
       sendMessage: async (msg) => {
         try {
@@ -75,6 +76,7 @@
           postMessage(msg) {
             const emit = (m) => onMsg.forEach((fn) => fn(m));
             if (msg.type === 'stop' || msg.type === 'stopTopic') return ctrl?.abort();
+            window.__wikiaiLastPage = msg.page; // for inspecting what the sidebar sends
             if (msg.type === 'buildTopic') {
               ctrl = new AbortController();
               return W.cluster
