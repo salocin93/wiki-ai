@@ -9,6 +9,9 @@ A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia ar
 - **Ask about selected text.** Select a passage and click **Ask about this**, or right-click → *Ask Wiki AI about "…"*.
 - **Knows where you are.** The section you're scrolled to is added to the prompt, so "explain this section" works.
 - **Topic clusters across many articles.** Click **Build topic cluster** and the model groups the article's most relevant links into themes, e.g. *House of Oldenburg* → Danish line, cadet branches, origins. The cluster stays active as you browse its articles, and questions then search every article in it at once. You can add or remove articles, and switch between saved topics.
+- **Suggested next questions.** Every answer ends with three follow-up questions. Clicking one opens it in a **new tab** that remembers the conversation so far, while the original answer and its other suggestions stay put; opened suggestions are marked and jump back to their tab.
+- **Chats as tabs.** Each tab is its own conversation, saved per topic (or per article without a topic), so they're still there when you come back.
+- **Topic map.** The map button in the topic bar shows the topic's articles as a graph: colored by theme, sized by connections, with lines for links between them. Hover to see an article's connections, click for its summary, open it, or ask about it in a new tab.
 - **Falls back automatically.** If the PC model is off (HTTP 503), it retries on `mac/qwen3.5-9b-fast`.
 
 Toggle the sidebar with the round button (bottom right), the toolbar icon, or **Alt+Shift+W**.
@@ -42,6 +45,7 @@ With a topic active, the model gets the topic map (themes, articles, description
 |---|---|---|
 | Saved topics (titles, themes, short summaries, links between pages) | `chrome.storage.local` | ~20–60 KB per topic, kept until you delete it |
 | Wikipedia article text and summaries | IndexedDB cache | expires after 24 h, capped at 300 entries (oldest removed first) |
+| Chat tabs (messages, sources trimmed to 700 characters) | `chrome.storage.local` | 12 per topic or article, 40 topics/articles at most (least recently used dropped) |
 | Search indexes | memory only | rebuilt as needed |
 
 The settings page shows current usage and has a button to clear the cache.

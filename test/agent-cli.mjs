@@ -26,6 +26,7 @@ const answer = await W.agent.run({
   emit: (e) => {
     if (e.type === 'status' || e.type === 'step') console.log(`[${ts()}] ${e.type}: ${e.text}`);
     if (e.type === 'error') console.log('ERROR', e.message);
+    if (e.type === 'done') console.log(`[${ts()}] FOLLOW-UPS:\n${(e.followups || []).map((q) => `  - ${q}`).join('\n') || '  (none)'}`);
   },
 });
 console.log(`\n[${ts()}] ANSWER:\n${answer}\n`);

@@ -15,8 +15,10 @@
   const state = {
     open: false,
     busy: false,
-    messages: [], // {role, content, reasoning, steps[], status, error, model}
-    sources: [],
+    convs: [], // tabs: {id, scope, title, messages: [{role, content, steps, followups, branches, …}], sources, parentId, context}
+    activeId: null,
+    scope: null, // where the tabs are saved: the topic, or this article
+    request: null, // the conversation an answer is streaming into
     quote: null, // {text, section}
     port: null,
     links: null,
@@ -294,7 +296,7 @@
           <div class="name">Wiki AI</div>
           <div class="sub"></div>
         </div>
-        <button class="icon new" title="New conversation" aria-label="New conversation">
+        <button class="icon new" title="New chat tab" aria-label="New chat tab">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
         <button class="icon settings" title="Settings" aria-label="Settings">
@@ -305,6 +307,7 @@
         </button>
       </header>
       <div class="topic"></div>
+      <div class="tabs" role="tablist" hidden></div>
       <div class="messages" role="log" aria-live="polite"></div>
       <div class="preview" hidden></div>
       <form class="composer">
@@ -343,6 +346,7 @@
   const previewEl = $('.preview');
   const askSelBtn = $('.ask-selection');
   const topicEl = $('.topic');
+  const tabsEl = $('.tabs');
   $('.sub').textContent = title;
 
   function syncTheme() {
@@ -380,6 +384,7 @@
     launcher.hidden = open;
     document.documentElement.classList.toggle('wikiai-open', open);
     unpinWikipediaColumn(open);
+    if (!open) closeMap?.();
     if (open) {
       render();
       refreshTopic();
@@ -424,7 +429,8 @@
       state.savedTopics = await send({ type: 'topics:list' });
     } catch {}
     renderTopic();
-    render();
+    if (currentScope() !== state.scope) await loadConversations();
+    else render();
   }
 
   const inTopic = () => !!state.topic?.pages.some((p) => p.title === title);
@@ -450,12 +456,17 @@
     }
     const chevron = `<svg class="chev${state.topicOpen ? ' open' : ''}" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
     topicEl.innerHTML = `
+      <div class="topic-row">
       <button class="topic-bar active toggle-topic" aria-expanded="${state.topicOpen}">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>
         <span class="topic-name">${esc(t.name)}</span>
         <span class="topic-meta">${t.pages.length} articles · ${t.facets.length} themes</span>
         ${chevron}
-      </button>${error}
+      </button>
+      <button class="icon open-map" title="Show topic map" aria-label="Show topic map">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg>
+      </button>
+      </div>${error}
       ${state.topicOpen ? (state.topicView === 'saved' ? savedList() : topicMap(t)) : ''}`;
   }
 
@@ -482,6 +493,7 @@
         ${seed.length ? `<ul class="seed">${seed.map(pageRow).join('')}</ul>` : ''}
         ${facets}
         <div class="drawer-actions">
+          <button class="link open-map">Show map</button>
           <button class="link rebuild-topic" title="Build a new cluster starting from this article">Rebuild from this article</button>
           <button class="link show-saved">Saved topics</button>
           <button class="link leave-topic">Close topic</button>
@@ -532,6 +544,148 @@
     await refreshTopic();
   }
 
+  // ---------- Conversations (tabs) ----------
+
+  const newConv = (extra = {}) => ({
+    id: `c_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    scope: state.scope,
+    title: '',
+    messages: [],
+    sources: [],
+    createdAt: Date.now(),
+    ...extra,
+  });
+  const conv = () => state.convs.find((c) => c.id === state.activeId) || state.convs[0];
+  const convById = (id) => state.convs.find((c) => c.id === id);
+  const currentScope = () => (state.topic ? `topic:${state.topic.id}` : `page:${lang}:${title}`);
+  const stripCites = (text) => text.replace(/\s?\[\d+(?:\s*[,;]\s*\d+)*\]/g, '');
+
+  async function loadConversations() {
+    state.scope = currentScope();
+    let saved = [];
+    try {
+      saved = (await send({ type: 'conv:list', scope: state.scope })) || [];
+    } catch {}
+    // Keep a conversation that is still answering, even if it belongs elsewhere.
+    const running = state.request && !saved.some((c) => c.id === state.request.id) ? [state.request] : [];
+    state.convs = [...saved, ...running].sort((a, b) => a.createdAt - b.createdAt);
+    if (!state.convs.length) state.convs.push(newConv());
+    const latest = [...state.convs].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0];
+    state.activeId = latest.id;
+    renderTabs();
+    render();
+  }
+
+  function saveConv(c) {
+    send({ type: 'conv:save', scope: c.scope || state.scope, conv: c }).catch(() => {});
+  }
+
+  function switchTo(id) {
+    const cur = conv();
+    if (cur) cur.scrollTop = messagesEl.scrollTop;
+    state.activeId = id;
+    previewEl.hidden = true;
+    renderTabs();
+    render(true);
+  }
+
+  function newTab() {
+    const empty = state.convs.find((c) => !c.messages.length);
+    if (empty) return switchTo(empty.id);
+    const c = newConv();
+    state.convs.push(c);
+    switchTo(c.id);
+    input.focus();
+  }
+
+  function closeTab(id) {
+    const c = convById(id);
+    if (!c) return;
+    if (state.request === c) state.port?.postMessage({ type: 'stop' });
+    const i = state.convs.indexOf(c);
+    state.convs.splice(i, 1);
+    if (c.messages.length) send({ type: 'conv:delete', scope: c.scope || state.scope, id }).catch(() => {});
+    if (!state.convs.length) state.convs.push(newConv());
+    if (state.activeId === id) state.activeId = (state.convs[i] || state.convs[i - 1]).id;
+    renderTabs();
+    render(true);
+  }
+
+  // A suggested question opens in its own tab that remembers the conversation so far, so the original
+  // answer and its other suggestions stay where they were.
+  function openFollowup(parentId, msgIndex, question) {
+    const parent = convById(parentId);
+    const m = parent?.messages[msgIndex];
+    if (!m) return;
+    m.branches ||= {};
+    const existing = convById(m.branches[question]);
+    if (existing) return switchTo(existing.id);
+    const context = [...(parent.context || []), ...parent.messages.slice(0, msgIndex + 1)]
+      .filter((x) => x.content && !x.error)
+      .map((x) => ({ role: x.role, content: stripCites(x.content) }))
+      .slice(-6);
+    const child = newConv({ parentId: parent.id, parentTitle: parent.title, context });
+    m.branches[question] = child.id;
+    saveConv(parent);
+    state.convs.push(child);
+    switchTo(child.id);
+    if (state.busy) {
+      input.value = question; // another answer is still running; ask when it's done
+      autosize();
+      input.focus();
+    } else ask(question, child);
+  }
+
+  const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
+
+  function renderTabs() {
+    const esc = W.markdown.esc;
+    const show = state.convs.length > 1 || state.convs.some((c) => c.messages.length);
+    tabsEl.hidden = !show;
+    if (!show) return;
+    tabsEl.innerHTML =
+      state.convs
+        .map((c) => {
+          const active = c.id === conv()?.id;
+          const label = c.title || 'New chat';
+          const running = state.request === c ? '<span class="dot"></span>' : '';
+          return `<div class="tab${active ? ' active' : ''}" role="presentation">
+            <button class="tab-btn" role="tab" aria-selected="${active}" data-id="${c.id}" title="${esc(label)}">${running}${c.parentId ? '<span class="branch-mark" aria-hidden="true">↳</span>' : ''}${esc(truncate(label, 26))}</button>
+            <button class="icon tab-close" data-id="${c.id}" title="Close tab" aria-label="Close ${esc(label)}">×</button>
+          </div>`;
+        })
+        .join('') + `<button class="icon tab-new" title="New chat tab" aria-label="New chat tab">+</button>`;
+    tabsEl.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  // ---------- Topic map ----------
+
+  let closeMap = null;
+  function showMap() {
+    const t = state.topic;
+    if (!t) return;
+    const facets = t.facets.map((f) => f.name);
+    closeMap = W.topicMap.open({
+      root,
+      topic: t,
+      currentTitle: title,
+      rightInset: state.open ? PANEL_WIDTH : 0,
+      colorOf: (p) => (p.seed ? 'c0' : `c${(Math.max(0, facets.indexOf(p.facet)) % 5) + 1}`),
+      onOpenArticle: (t2) => (location.href = wikiUrl(t2)),
+      onAsk: (t2) => {
+        const empty = state.convs.find((c) => !c.messages.length);
+        const c = empty || newConv();
+        if (!empty) state.convs.push(c);
+        switchTo(c.id);
+        const q = `Tell me about ${t2} and how it connects to ${t.name}.`;
+        if (state.busy) {
+          input.value = q;
+          autosize();
+        } else ask(q, c);
+      },
+    });
+  }
+
   const W_ADDED = 'Added by you';
   const SUGGESTIONS = [
     'Summarize this article in a few bullet points',
@@ -548,14 +702,19 @@
     ];
   }
 
-  function render() {
-    if (!state.messages.length) {
+  function render(restoreScroll = false) {
+    const c = conv();
+    if (!c) return;
+    const branchFrom = c.parentId
+      ? `<div class="branch-from">Continued from ${convById(c.parentId) ? `<button class="link goto-conv" data-id="${c.parentId}">“${W.markdown.esc(truncate(c.parentTitle || 'previous chat', 60))}”</button>` : `“${W.markdown.esc(truncate(c.parentTitle || 'a closed chat', 60))}”`}</div>`
+      : '';
+    if (!c.messages.length) {
       const esc = W.markdown.esc;
       const t = state.topic;
       const intro = t
         ? `Ask anything about <strong>${esc(t.name)}</strong>: answers search all ${t.pages.length} articles in the topic.`
         : `Ask anything about <strong>${esc(title)}</strong> or the articles it links to. Select text in the article to ask about a passage.`;
-      messagesEl.innerHTML = `
+      messagesEl.innerHTML = `${branchFrom}
         <div class="empty">
           <p>${intro}</p>
           ${(t ? topicSuggestions(t) : SUGGESTIONS).map((s) => `<button class="suggestion">${esc(s)}</button>`).join('')}
@@ -564,22 +723,22 @@
     }
     const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
     const scrollTop = messagesEl.scrollTop;
-    messagesEl.innerHTML = state.messages.map(renderMessage).join('');
-    messagesEl.scrollTop = atBottom ? messagesEl.scrollHeight : scrollTop;
+    messagesEl.innerHTML = branchFrom + c.messages.map(renderMessage).join('');
+    messagesEl.scrollTop = restoreScroll ? c.scrollTop ?? messagesEl.scrollHeight : atBottom ? messagesEl.scrollHeight : scrollTop;
   }
 
-  const known = (n) => n >= 1 && n <= state.sources.length;
+  const known = (n) => n >= 1 && n <= (conv()?.sources.length || 0);
 
   // Each cited page gets a stable color for the conversation, shared by its inline citations and its source group.
   const PAGE_COLORS = 6;
   function pageColor(page) {
-    const pages = [...new Set(state.sources.map((s) => s.page))];
+    const pages = [...new Set(conv().sources.map((s) => s.page))];
     const i = page === title ? 0 : pages.filter((p) => p !== title).indexOf(page) + 1;
     return i % PAGE_COLORS;
   }
 
   function citeAttrs(n) {
-    const s = state.sources[n - 1];
+    const s = conv().sources[n - 1];
     return { title: `${s.page} › ${s.section}`, className: `c${pageColor(s.page)}` };
   }
 
@@ -587,7 +746,7 @@
   function renderSourceGroups(numbers) {
     const groups = new Map();
     for (const n of numbers) {
-      const s = state.sources[n - 1];
+      const s = conv().sources[n - 1];
       if (!groups.has(s.page)) groups.set(s.page, []);
       groups.get(s.page).push(s);
     }
@@ -624,7 +783,15 @@
     const cited = m.pending ? [] : W.markdown.citedNumbers(m.content || '').filter(known);
     const sources = cited.length ? renderSourceGroups(cited) : '';
     const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}</div>` : '';
-    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${status}${error}${sources}${meta}</div>`;
+    const followups = !m.pending && m.followups?.length
+      ? `<div class="followups"><div class="fu-label">Ask next</div>${m.followups
+          .map((q) => {
+            const opened = convById(m.branches?.[q]);
+            return `<button class="followup${opened ? ' opened' : ''}" data-i="${i}" data-q="${W.markdown.esc(q)}" title="${opened ? 'Go to its tab' : 'Ask in a new tab'}">${W.markdown.esc(q)}${opened ? '<span class="fu-tab">open tab ›</span>' : ''}</button>`;
+          })
+          .join('')}</div>`
+      : '';
+    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${status}${error}${sources}${meta}${followups}</div>`;
   }
 
   // Re-render at most every 40 ms while tokens stream in (a timer, so it also runs in background tabs).
@@ -662,11 +829,14 @@
     port.onMessage.addListener(onAgentMessage);
     port.onDisconnect.addListener(() => {
       state.port = null;
-      const m = state.messages[state.messages.length - 1];
+      const c = state.request;
+      const m = c?.messages[c.messages.length - 1];
       if (state.busy && m?.pending) {
         m.pending = false;
         m.error = 'Connection to the extension was lost. Try again.';
+        state.request = null;
         setBusy(false);
+        renderTabs();
         render();
       }
     });
@@ -692,8 +862,15 @@
       render();
       return;
     }
-    const m = state.messages[state.messages.length - 1];
+    const c = state.request;
+    const m = c?.messages[c.messages.length - 1];
     if (!m || m.role !== 'assistant') return;
+    const finish = () => {
+      state.request = null;
+      setBusy(false);
+      saveConv(c);
+      renderTabs();
+    };
     switch (msg.type) {
       case 'status':
         m.status = msg.text;
@@ -707,25 +884,26 @@
         if (msg.reasoning) m.reasoning = msg.reasoning;
         break;
       case 'sources':
-        state.sources = msg.sources;
+        c.sources = msg.sources;
         break;
       case 'done':
         m.pending = false;
         if (msg.answer) m.content = msg.answer;
         if (msg.model) m.model = msg.model;
+        if (msg.followups?.length) m.followups = msg.followups;
         if (msg.stopped && !m.content) m.error = 'Stopped.';
-        setBusy(false);
+        finish();
         break;
       case 'error':
         m.pending = false;
         m.error = msg.message;
-        setBusy(false);
+        finish();
         break;
     }
-    scheduleRender();
+    if (c === conv()) scheduleRender();
   }
 
-  function ask(question) {
+  function ask(question, c = conv()) {
     question = question.trim();
     if (!question || state.busy) return;
     try {
@@ -733,22 +911,28 @@
     } catch {
       return;
     }
-    const history = state.messages
-      .filter((m) => !m.error && m.content)
-      .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : m.content }));
+    const history = [
+      ...(c.context || []),
+      ...c.messages
+        .filter((m) => !m.error && m.content)
+        .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : m.content })),
+    ];
     const quote = state.quote;
-    state.messages.push({ role: 'user', content: question, quote });
-    state.messages.push({ role: 'assistant', content: '', steps: [], pending: true, status: 'Starting' });
+    c.title ||= question;
+    c.messages.push({ role: 'user', content: question, quote });
+    c.messages.push({ role: 'assistant', content: '', steps: [], pending: true, status: 'Starting' });
+    state.request = c;
     setQuote(null);
     input.value = '';
     autosize();
     setBusy(true);
+    renderTabs();
     render();
     connect().postMessage({
       type: 'ask',
       question,
       history,
-      sources: state.sources,
+      sources: c.sources,
       page: { ...pageInfo(), selection: quote },
       topicId: state.topic?.id || null,
     });
@@ -773,7 +957,7 @@
   }
 
   function onCite(n) {
-    const src = state.sources[n - 1];
+    const src = conv().sources[n - 1];
     if (!src) return;
     if (src.current) {
       const found = highlightSource(src);
@@ -792,16 +976,7 @@
   launcher.addEventListener('click', () => setOpen(true));
   $('.close').addEventListener('click', () => setOpen(false));
   $('.settings').addEventListener('click', openOptions);
-  $('.new').addEventListener('click', () => {
-    if (state.busy) state.port?.postMessage({ type: 'stop' });
-    state.messages = [];
-    state.sources = [];
-    previewEl.hidden = true;
-    CSS.highlights?.delete('wikiai-cite');
-    setQuote(null);
-    setBusy(false);
-    render();
-  });
+  $('.new').addEventListener('click', newTab);
 
   $('.composer').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -822,7 +997,7 @@
     'toggle',
     (e) => {
       const d = e.target;
-      const m = state.messages[Number(d.closest('.msg')?.dataset.i)];
+      const m = conv()?.messages[Number(d.closest('.msg')?.dataset.i)];
       if (!m) return;
       if (d.classList.contains('steps')) m.stepsOpen = d.open;
       if (d.classList.contains('reasoning')) m.reasoningOpen = d.open;
@@ -837,7 +1012,13 @@
     else if (t.matches('.suggestion')) ask(t.textContent);
     else if (t.matches('.clear-quote')) setQuote(null);
     else if (t.matches('.close-preview')) previewEl.hidden = true;
-    else if (t.matches('.show-in-page')) highlightSource(state.sources[Number(previewEl.dataset.n) - 1]);
+    else if (t.matches('.show-in-page')) highlightSource(conv().sources[Number(previewEl.dataset.n) - 1]);
+    else if (t.matches('.followup')) openFollowup(conv().id, Number(t.dataset.i), t.dataset.q);
+    else if (t.matches('.tab-btn')) switchTo(t.dataset.id);
+    else if (t.matches('.tab-close')) closeTab(t.dataset.id);
+    else if (t.matches('.tab-new')) newTab();
+    else if (t.matches('.goto-conv')) switchTo(t.dataset.id);
+    else if (t.matches('.open-map')) showMap();
     else if (t.matches('.open-settings')) openOptions();
     else if (t.matches('.reload-page')) location.reload();
     else if (t.matches('.build-topic, .rebuild-topic')) buildTopic();

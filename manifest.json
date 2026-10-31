@@ -25,7 +25,7 @@
   "content_scripts": [
     {
       "matches": ["https://*.wikipedia.org/wiki/*"],
-      "js": ["content/markdown.js", "content/content.js"],
+      "js": ["content/markdown.js", "content/map.js", "content/content.js"],
       "run_at": "document_idle"
     }
   ],

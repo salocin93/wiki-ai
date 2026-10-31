@@ -11,7 +11,7 @@
       s.onerror = reject;
       document.head.appendChild(s);
     });
-  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/agent.js', 'lib/topics.js', 'lib/cluster.js', 'content/markdown.js']) await load(f);
+  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/agent.js', 'lib/topics.js', 'lib/conversations.js', 'lib/cluster.js', 'content/markdown.js', 'content/map.js']) await load(f);
   const W = globalThis.WikiAI;
   const settings = { ...W.settings.DEFAULTS, model: 'fake-model' };
 
@@ -52,7 +52,9 @@
       onUpdate?.({ answer: answer.slice(0, i), reasoning: '' });
       await new Promise((r) => setTimeout(r, 15));
     }
-    return { content: answer, toolCalls: [] };
+    const q = question.trim().replace(/\?$/, '');
+    const raw = `${answer}\n\n<followups>\n- What came before: ${q}?\n- Which article explains the background of ${q}?\n- How does this compare with neighbouring dynasties?\n</followups>`;
+    return { content: answer, raw, toolCalls: [] };
   };
   const listeners = [];
   window.chrome = {

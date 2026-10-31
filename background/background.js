@@ -8,6 +8,7 @@ importScripts(
   '../lib/links.js',
   '../lib/agent.js',
   '../lib/topics.js',
+  '../lib/conversations.js',
   '../lib/cluster.js'
 );
 
@@ -75,7 +76,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'openOptions') chrome.runtime.openOptionsPage();
-  if (/^(topics|cache):/.test(msg.type)) {
+  if (/^(topics|cache|conv):/.test(msg.type)) {
     W.topics
       .handle(msg)
       .then((result) => sendResponse({ result }))
