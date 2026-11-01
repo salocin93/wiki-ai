@@ -741,7 +741,7 @@
       root,
       topic: t,
       currentTitle: title,
-      colorOf: (p) => (p.seed ? 'c0' : `c${(Math.max(0, facets.indexOf(p.facet)) % 5) + 1}`),
+      colorOf: (p) => (p.seed ? 'c0' : `c${(Math.max(0, facets.indexOf(p.facet)) % 7) + 1}`),
       onOpenArticle: (t2) => (location.href = wikiUrl(t2)),
       onAsk: async (t2) => {
         closeMap?.();

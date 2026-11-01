@@ -102,18 +102,23 @@ header {
 }
 .cite:hover { background: var(--pc); color: var(--bg); }
 
-/* Per-page colors: c0 is the current article, c1–c5 are other pages in order of first citation. */
+/* Per-page colors: c0 is the current article, c1–c5 are other pages in order of first citation.
+   The map's themes also use c6–c7, so up to seven themes each get their own color. */
 .c0, .cite { --pc: var(--accent); --pc-soft: var(--accent-soft); }
 .c1 { --pc: #7a4fbf; --pc-soft: #f1ebfa; }
 .c2 { --pc: #0f7f74; --pc-soft: #e2f4f1; }
 .c3 { --pc: #b55a00; --pc-soft: #fbeedf; }
 .c4 { --pc: #b3306b; --pc-soft: #fbe7f0; }
 .c5 { --pc: #4f7a1f; --pc-soft: #ecf4e1; }
+.c6 { --pc: #8a7300; --pc-soft: #f6f0d8; }
+.c7 { --pc: #5d6470; --pc-soft: #eceef1; }
 :host([data-theme='dark']) .c1 { --pc: #b89be6; --pc-soft: #352a4a; }
 :host([data-theme='dark']) .c2 { --pc: #5cc8bb; --pc-soft: #1d3a37; }
 :host([data-theme='dark']) .c3 { --pc: #f0a35c; --pc-soft: #42301d; }
 :host([data-theme='dark']) .c4 { --pc: #ec82b1; --pc-soft: #452234; }
 :host([data-theme='dark']) .c5 { --pc: #a3cf6e; --pc-soft: #2c3a1d; }
+:host([data-theme='dark']) .c6 { --pc: #d8c25a; --pc-soft: #3a341a; }
+:host([data-theme='dark']) .c7 { --pc: #aab1bd; --pc-soft: #2e3238; }
 
 .steps, .reasoning { font-size: 12.5px; color: var(--muted); }
 .steps summary, .reasoning summary { cursor: pointer; user-select: none; }
@@ -213,7 +218,18 @@ textarea:focus { border-color: var(--accent); }
 
 .map-svg { flex: 1; width: 100%; cursor: grab; user-select: none; touch-action: none; }
 .map-svg:active { cursor: grabbing; }
-.map-svg line { stroke: var(--muted); stroke-opacity: 0.22; stroke-width: 1; }
+.map-svg .edges line { stroke: var(--muted); stroke-opacity: 0; stroke-width: 1; pointer-events: none; }
+.map-svg .bundle { stroke: var(--muted); stroke-opacity: 0.28; stroke-linecap: round; cursor: help; }
+.map-svg .bundle:hover { stroke-opacity: 0.5; }
+.map-svg.focus .bundle { stroke-opacity: 0.06; }
+.map-svg.focus .bundle.hl { stroke: var(--accent); stroke-opacity: 0.55; }
+.map-svg .cluster ellipse { fill: var(--pc); fill-opacity: 0.06; stroke: var(--pc); stroke-opacity: 0.22; stroke-width: 1; }
+.map-svg .cluster.active ellipse { fill-opacity: 0.12; stroke-opacity: 0.5; }
+.map-svg .cluster text {
+  font-size: calc(11.5px * var(--label-scale, 1)); font-weight: 600; text-anchor: middle; fill: var(--pc); cursor: pointer;
+  paint-order: stroke; stroke: var(--bg); stroke-width: calc(3px * var(--label-scale, 1)); stroke-linejoin: round;
+}
+.map-svg.focus .cluster:not(.active) { opacity: 0.35; }
 .map-svg .node { cursor: pointer; }
 .map-svg .node circle { fill: var(--pc); stroke: var(--bg); stroke-width: 2; }
 .map-svg .node.here circle { stroke: var(--text); stroke-width: 2.5; }
@@ -225,12 +241,11 @@ textarea:focus { border-color: var(--accent); }
 /* Labels that would overlap another; shown when their article is hovered, selected or highlighted. */
 .map-svg .node text.crowded { visibility: hidden; }
 .map-svg .node:hover text.crowded, .map-svg .node:focus-visible text.crowded,
-.map-svg .node.selected text.crowded, .map-svg.focus .node.hl text.crowded { visibility: visible; }
+.map-svg .node.selected text.crowded { visibility: visible; }
 .map-svg .node:focus-visible { outline: none; }
 .map-svg .node:focus-visible circle { stroke: var(--accent); stroke-width: 3; }
 .map-svg.focus .node:not(.hl):not(.selected) { opacity: 0.18; }
-.map-svg.focus line:not(.hl) { stroke-opacity: 0.05; }
-.map-svg.focus line.hl { stroke: var(--accent); stroke-opacity: 0.7; stroke-width: 1.5; }
+.map-svg.focus .edges line.hl { stroke: var(--accent); stroke-opacity: 0.7; stroke-width: 1.5; }
 
 .map-card {
   position: absolute; left: 16px; bottom: 16px; width: 320px; max-height: 60%; overflow-y: auto;
@@ -312,6 +327,7 @@ button.primary { padding: 8px 14px; border-radius: 8px; border: none; background
 .map-inline .map-title { max-width: none; flex: 1; }
 .map-inline .legend { flex-basis: 100%; justify-content: flex-start; order: 3; }
 .map-inline .map-svg .node text { font-size: calc(10px * var(--label-scale, 1)); }
+.map-inline .map-svg .cluster text { font-size: calc(10.5px * var(--label-scale, 1)); }
 .map-inline .map-card { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 55%; }
 .map-inline .map-hint { right: 10px; bottom: 6px; }
 

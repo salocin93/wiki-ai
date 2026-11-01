@@ -1,10 +1,12 @@
 // Topic map: the topic's articles as a graph (dots colored by theme, sized by connections, lines for links),
-// shown over the article area next to the sidebar. No library: a small force layout is enough for ~30 nodes.
+// shown over the article area next to the sidebar. No library: a fixed grouped layout is enough for ~30 nodes.
 (function (g) {
   const W = (g.WikiAI = g.WikiAI || {});
   const esc = (s) => W.markdown.esc(String(s ?? ''));
 
-  // Deterministic layout: same topic, same picture.
+  // Deterministic layout: same topic, same picture. Each theme gets its own round region on a ring around the
+  // starting article, so themes never overlap; inside a region articles are packed in a sunflower spiral, the
+  // most connected ones in the middle. Lines between regions then show how the themes relate.
   function layout(topic, w, h) {
     const nodes = topic.pages.map((p) => ({ id: p.title, page: p, deg: 0 }));
     const index = new Map(nodes.map((n, i) => [n.id, i]));
@@ -21,80 +23,124 @@
       nodes[j].deg++;
     }
 
-    const facets = topic.facets.map((f) => f.name);
-    const cx = w / 2;
-    const cy = h / 2;
-    const R = Math.min(w, h) * 0.3;
-    const anchorOf = (n) => {
-      const i = facets.indexOf(n.page.facet);
-      if (n.page.seed || i < 0) return { x: cx, y: cy };
-      const a = (i / facets.length) * 2 * Math.PI - Math.PI / 2;
-      return { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
-    };
-    let seed = 7;
-    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    for (const n of nodes) {
-      n.anchor = anchorOf(n);
-      n.x = n.anchor.x + (rnd() - 0.5) * 80;
-      n.y = n.anchor.y + (rnd() - 0.5) * 80;
+    // Groups: the starting article(s) in the middle, then one per theme (articles of an unknown theme last).
+    const names = topic.facets.map((f) => f.name).filter((f) => nodes.some((n) => !n.page.seed && n.page.facet === f));
+    if (nodes.some((n) => !n.page.seed && !names.includes(n.page.facet))) names.push(null);
+    const groupOf = (n) => (n.page.seed ? -1 : names.includes(n.page.facet) ? names.indexOf(n.page.facet) : names.indexOf(null));
+    nodes.forEach((n) => (n.group = groupOf(n)));
+    const members = (g) =>
+      nodes.filter((n) => n.group === g).sort((a, b) => b.deg - a.deg || (a.id < b.id ? -1 : 1));
+
+    // Put themes that link to each other a lot next to each other on the ring (tries every order for up to 7).
+    const F = names.length;
+    const weight = names.map(() => names.map(() => 0));
+    for (const [i, j] of edges) {
+      const [a, b] = [nodes[i].group, nodes[j].group];
+      if (a >= 0 && b >= 0 && a !== b) weight[a][b] = ++weight[b][a];
+    }
+    let ring = names.map((_, i) => i);
+    if (F > 2 && F <= 7) {
+      const cost = (o) => {
+        let c = 0;
+        for (let x = 0; x < F; x++)
+          for (let y = x + 1; y < F; y++) c += weight[o[x]][o[y]] * Math.min(y - x, F - (y - x));
+        return c;
+      };
+      let best = cost(ring);
+      const permute = (prefix, rest) => {
+        if (!rest.length) {
+          const c = cost(prefix);
+          if (c < best) [best, ring] = [c, prefix];
+          return;
+        }
+        rest.forEach((r, k) => permute([...prefix, r], [...rest.slice(0, k), ...rest.slice(k + 1)]));
+      };
+      permute([0], ring.slice(1));
     }
 
-    // Fruchterman–Reingold, with a pull toward each theme's anchor so themes read as groups.
-    const k = Math.sqrt((w * h) / Math.max(1, nodes.length)) * 0.45;
-    const steps = 400;
-    for (let it = 0; it < steps; it++) {
-      const temp = (1 - it / steps) * k * 0.6 + 1;
-      for (const n of nodes) n.dx = n.dy = 0;
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i];
-          const b = nodes[j];
-          let dx = a.x - b.x;
-          let dy = a.y - b.y;
-          const d = Math.max(1, Math.hypot(dx, dy));
-          const f = (k * k) / d;
-          dx = (dx / d) * f;
-          dy = (dy / d) * f;
-          a.dx += dx;
-          a.dy += dy;
-          b.dx -= dx;
-          b.dy -= dy;
+    // Sizes in units of one article spacing; regions are wider than tall, since labels are.
+    const c = 0.58;
+    const wide = 1.5;
+    const pack = (list, cx, cy) =>
+      list.forEach((n, i) => {
+        const r = list.length === 1 ? 0 : c * Math.sqrt(i + 0.5);
+        const a = i * 2.39996; // golden angle
+        n.ux = cx + r * Math.cos(a) * wide;
+        n.uy = cy + r * Math.sin(a);
+      });
+    const radiusOf = (count) => (count <= 1 ? 0.6 : c * Math.sqrt(count - 0.5) + 0.6);
+    const seeds = members(-1);
+    const seedR = seeds.length ? radiusOf(seeds.length) + 0.3 : 0;
+    const groups = names.map((name, g) => ({ name, list: members(g), r: radiusOf(members(g).length) }));
+    // Regions sit on an oval shaped like the box, pushed out just far enough that none overlap (with room for
+    // the theme names). Of two rotations of the ring, keep the one that draws everything biggest.
+    const pad = { x: 36, top: 34, bottom: 26 };
+    const regions = [...(seeds.length ? [{ r: seedR, fixed: true }] : []), ...ring.map((g) => groups[g])];
+    const [ex, ey] = [w / Math.max(w, h), h / Math.max(w, h)];
+    const apart = (p, q) =>
+      Math.abs(p.ux - q.ux) >= (p.r + q.r) * wide + 0.8 || Math.abs(p.uy - q.uy) >= p.r + q.r + 1.1;
+    let best = null;
+    for (const offset of F > 1 ? [0, Math.PI / F] : [0]) {
+      const at = (A) =>
+        regions.forEach((reg) => {
+          const k = ring.indexOf(groups.indexOf(reg));
+          const a = (k / Math.max(1, F)) * 2 * Math.PI - Math.PI / 2 + offset;
+          [reg.ux, reg.uy] = reg.fixed ? [0, 0] : [A * ex * Math.cos(a), A * ey * Math.sin(a)];
+        });
+      let A = 0;
+      for (at(A); regions.some((p, i) => regions.some((q, j) => j > i && !apart(p, q))); at((A += 0.1)));
+      // The ring is sized for the biggest region; pull the others in toward the middle as far as they fit.
+      for (let it = 0; it < 40; it++) {
+        for (const reg of regions) {
+          if (reg.fixed) continue;
+          const [x, y] = [reg.ux, reg.uy];
+          [reg.ux, reg.uy] = [x * 0.95, y * 0.95];
+          if (regions.some((q) => q !== reg && !apart(reg, q))) [reg.ux, reg.uy] = [x, y];
         }
       }
-      for (const [i, j] of edges) {
-        const a = nodes[i];
-        const b = nodes[j];
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-        const d = Math.max(1, Math.hypot(dx, dy));
-        const f = ((d * d) / k) * 0.12; // weak: topics are densely linked
-        a.dx -= (dx / d) * f;
-        a.dy -= (dy / d) * f;
-        b.dx += (dx / d) * f;
-        b.dy += (dy / d) * f;
-      }
-      for (const n of nodes) {
-        const pull = n.page.seed ? 0.9 : 0.35;
-        n.dx += (n.anchor.x - n.x) * pull * (k / 60);
-        n.dy += (n.anchor.y - n.y) * pull * (k / 60);
-        const d = Math.max(1, Math.hypot(n.dx, n.dy));
-        n.x += (n.dx / d) * Math.min(d, temp);
-        n.y += (n.dy / d) * Math.min(d, temp);
-      }
+      const minX = Math.min(...regions.map((reg) => reg.ux - reg.r * wide));
+      const maxX = Math.max(...regions.map((reg) => reg.ux + reg.r * wide));
+      const minY = Math.min(...regions.map((reg) => reg.uy - reg.r));
+      const maxY = Math.max(...regions.map((reg) => reg.uy + reg.r));
+      const scale = Math.min((w - 2 * pad.x) / (maxX - minX), (h - pad.top - pad.bottom) / (maxY - minY));
+      if (!best || scale > best.scale) best = { at: regions.map((reg) => [reg.ux, reg.uy]), scale, minX, maxX, minY, maxY };
     }
+    regions.forEach((reg, k) => ([reg.ux, reg.uy] = best.at[k]));
+    pack(seeds, 0, 0);
+    for (const grp of groups) pack(grp.list, grp.ux, grp.uy);
 
-    // Fit into the box, leaving room for labels.
-    const pad = { x: 90, y: 40 };
-    const xs = nodes.map((n) => n.x);
-    const ys = nodes.map((n) => n.y);
-    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const scale = Math.min((w - 2 * pad.x) / Math.max(1, maxX - minX), (h - 2 * pad.y) / Math.max(1, maxY - minY));
+    // Fit into the box, leaving room for the labels under the articles and the theme names above the regions.
+    const { scale, minX, maxX, minY, maxY } = best;
+    const ox = pad.x + (w - 2 * pad.x - (maxX - minX) * scale) / 2 - minX * scale;
+    const oy = pad.top + (h - pad.top - pad.bottom - (maxY - minY) * scale) / 2 - minY * scale;
+    const maxDeg = Math.max(1, ...nodes.map((n) => n.deg));
+    const rMax = Math.max(4, Math.min(13, scale * 0.34));
+    const rMin = Math.max(3, rMax * 0.45);
     for (const n of nodes) {
-      n.x = pad.x + (n.x - minX) * scale + (w - 2 * pad.x - (maxX - minX) * scale) / 2;
-      n.y = pad.y + (n.y - minY) * scale + (h - 2 * pad.y - (maxY - minY) * scale) / 2;
-      n.r = 5 + Math.sqrt(n.deg) * 1.8 + (n.page.seed ? 4 : 0);
+      n.x = ox + n.ux * scale;
+      n.y = oy + n.uy * scale;
+      n.r = n.page.seed ? Math.min(rMax * 1.3, scale * 0.45) : rMin + (rMax - rMin) * Math.sqrt(n.deg / maxDeg);
     }
-    return { nodes, edges };
+    const clusters = groups.map((grp) => ({
+      name: grp.name,
+      page: grp.list[0].page,
+      x: ox + grp.ux * scale,
+      y: oy + grp.uy * scale,
+      rx: grp.r * scale * wide,
+      ry: grp.r * scale,
+    }));
+    // One line per pair of linked themes, from region edge to region edge, standing in for their many links.
+    const bundles = [];
+    for (let a = 0; a < F; a++) {
+      for (let b = a + 1; b < F; b++) {
+        if (!weight[a][b]) continue;
+        const [p, q] = [clusters[a], clusters[b]];
+        const [dx, dy] = [q.x - p.x, q.y - p.y];
+        const t = (c) => 1 / Math.hypot(dx / c.rx, dy / c.ry);
+        bundles.push({ a, b, count: weight[a][b], x1: p.x + dx * t(p), y1: p.y + dy * t(p), x2: q.x - dx * t(q), y2: q.y - dy * t(q) });
+      }
+    }
+    return { nodes, edges, clusters, bundles };
   }
 
   // Full-size map over the article area, next to the sidebar. Returns a function that closes it.
@@ -141,7 +187,8 @@
     const rect = svg.getBoundingClientRect();
     const w = Math.max(280, Math.round(rect.width) || 400);
     const h = Math.max(240, Math.round(rect.height) || 400);
-    const { nodes, edges } = layout(topic, w, h);
+    const { nodes, edges, clusters, bundles } = layout(topic, w, h);
+    const maxBundle = Math.max(1, ...bundles.map((b) => b.count));
     const neighbors = nodes.map(() => new Set());
     edges.forEach(([i, j]) => {
       neighbors[i].add(j);
@@ -150,6 +197,20 @@
     box.querySelector('.map-meta').textContent = `${nodes.length} articles · ${edges.length} links between them`;
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     svg.innerHTML = `
+        <g class="clusters">${clusters
+          .map(
+            (c) => `<g class="cluster ${colorOf(c.page)}" data-facet="${esc(c.name ?? '')}">
+              <ellipse cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" rx="${c.rx.toFixed(1)}" ry="${c.ry.toFixed(1)}"/>
+              <text x="${c.x.toFixed(1)}" y="${(c.y - c.ry - 6).toFixed(1)}">${esc(c.name ?? 'Other')}</text>
+            </g>`
+          )
+          .join('')}</g>
+        <g class="bundles">${bundles
+          .map(
+            (b, k) => `<line class="bundle" data-b="${k}" x1="${b.x1.toFixed(1)}" y1="${b.y1.toFixed(1)}" x2="${b.x2.toFixed(1)}" y2="${b.y2.toFixed(1)}" stroke-width="${(1.5 + 7 * Math.sqrt(b.count / maxBundle)).toFixed(1)}">
+              <title>${b.count} link${b.count > 1 ? 's' : ''} between ${esc(clusters[b.a].name ?? 'Other')} and ${esc(clusters[b.b].name ?? 'Other')}</title></line>`
+          )
+          .join('')}</g>
         <g class="edges">${edges
           .map(([i, j], e) => `<line data-e="${e}" x1="${nodes[i].x.toFixed(1)}" y1="${nodes[i].y.toFixed(1)}" x2="${nodes[j].x.toFixed(1)}" y2="${nodes[j].y.toFixed(1)}"/>`)
           .join('')}</g>
@@ -163,24 +224,33 @@
           .join('')}</g>`;
 
     const card = box.querySelector('.map-card');
-    const lines = [...svg.querySelectorAll('line')];
+    const lines = [...svg.querySelectorAll('.edges line')];
     const nodeEls = [...svg.querySelectorAll('.node')];
+    const themeLabels = [...svg.querySelectorAll('.cluster text')];
+    const bundleEls = [...svg.querySelectorAll('.bundle')];
     const hereEl = svg.querySelector('.node.here');
     if (hereEl) hereEl.parentNode.appendChild(hereEl); // drawn last, so no circle covers its label
     let selected = null;
     let themeFilter = null;
+    let focus = null; // while something is highlighted: its articles get the labels first
 
-    function highlight(i) {
-      svg.classList.toggle('focus', i != null || themeFilter != null);
+    // Individual links show only for the hovered or selected article or the chosen theme. A hovered bundle
+    // stands out itself and lights up the articles at its ends; drawing its dozens of links would be a wall.
+    function highlight(i, bundle = null) {
+      const inTheme = (k) => themeFilter != null && !nodes[k].page.seed && nodes[k].page.facet === themeFilter;
+      const across = ([a, b]) =>
+        (nodes[a].group === bundle.a && nodes[b].group === bundle.b) || (nodes[a].group === bundle.b && nodes[b].group === bundle.a);
+      const linkOn = ([a, b]) => (i != null ? a === i || b === i : bundle ? false : inTheme(a) || inTheme(b));
+      svg.classList.toggle('focus', i != null || bundle != null || themeFilter != null);
+      focus = svg.classList.contains('focus') ? { lead: i, on: new Set() } : null;
       nodeEls.forEach((el, k) => {
-        const on = i != null ? k === i || neighbors[i].has(k) : themeFilter != null && nodes[k].page.facet === themeFilter;
+        const on = i != null ? k === i || neighbors[i].has(k) : bundle ? edges.some((e) => across(e) && e.includes(k)) : inTheme(k);
         el.classList.toggle('hl', on);
+        if (on) focus.on.add(k);
       });
-      lines.forEach((l, e) => {
-        const [a, b] = edges[e];
-        const on = i != null ? a === i || b === i : themeFilter != null && nodes[a].page.facet === themeFilter && nodes[b].page.facet === themeFilter;
-        l.classList.toggle('hl', on);
-      });
+      lines.forEach((l, e) => l.classList.toggle('hl', linkOn(edges[e])));
+      bundleEls.forEach((el, k) => el.classList.toggle('hl', bundles[k] === bundle));
+      placeLabels();
     }
 
     function select(i) {
@@ -219,18 +289,58 @@
     // article's label is hidden until it's hovered or selected, so zooming in reveals more of them.
     const order = nodes.map((n, i) => i).sort((a, b) => (nodes[b].id === currentTitle) - (nodes[a].id === currentTitle) || nodes[b].deg - nodes[a].deg);
     function placeLabels() {
-      svg.style.setProperty('--label-scale', String(view.w / w));
+      const ls = view.w / w;
+      svg.style.setProperty('--label-scale', String(ls));
       const hits = (a, b) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+      const inView = (b) => b.x1 >= view.x && b.x2 <= view.x + view.w && b.y1 >= view.y && b.y2 <= view.y + view.h;
       const circles = nodes.map((n) => ({ x1: n.x - n.r, y1: n.y - n.r, x2: n.x + n.r, y2: n.y + n.r }));
+      // Places a label at (x, y) inside a group at (ox, oy), sliding it sideways to stay inside the view;
+      // returns its box in map coordinates.
+      const put = (text, ox, oy, y, x = 0) => {
+        text.setAttribute('x', x.toFixed(1));
+        text.setAttribute('y', y.toFixed(1));
+        let b = text.getBBox();
+        const left = view.x + 2 - (ox + b.x);
+        const right = view.x + view.w - 2 - (ox + b.x + b.width);
+        const shift = left > 0 ? left : right < 0 ? Math.max(right, left) : 0;
+        text.setAttribute('x', (x + shift).toFixed(1));
+        b = text.getBBox();
+        return { x1: ox + b.x - 2, y1: oy + b.y - 1, x2: ox + b.x + b.width + 2, y2: oy + b.y + b.height + 1 };
+      };
+      // Theme names always show, above their region or else below it; article labels make room for them.
       const placed = [];
-      for (const i of order) {
+      clusters.forEach((c, k) => {
+        const text = themeLabels[k];
+        let box;
+        for (const y of [c.y - c.ry - 6 * ls, c.y + c.ry + 14 * ls]) {
+          box = put(text, 0, 0, y, c.x);
+          if (inView(box) && !placed.some((p) => hits(box, p))) break;
+        }
+        placed.push(box);
+      });
+      // While highlighting, only highlighted articles get labels: the hovered one, then the rest by connections.
+      const keep = (i) => nodes[i].id === currentTitle || (focus && focus.lead === i);
+      const turn = focus ? [...order].sort((a, b) => keep(b) - keep(a)).filter((i) => focus.on.has(i) || nodes[i].id === currentTitle) : order;
+      if (focus) for (const el of nodeEls) el.querySelector('text').classList.add('crowded');
+      for (const i of turn) {
         const text = nodeEls[i].querySelector('text');
         text.classList.remove('crowded');
-        const b = text.getBBox();
-        const box = { x1: nodes[i].x + b.x - 2, y1: nodes[i].y + b.y - 1, x2: nodes[i].x + b.x + b.width + 2, y2: nodes[i].y + b.y + b.height + 1 };
-        const here = nodes[i].id === currentTitle; // the reader's article always keeps its label
-        if (!here && (placed.some((p) => hits(box, p)) || circles.some((c, k) => k !== i && hits(box, c)))) text.classList.add('crowded');
-        else placed.push(box);
+        const n = nodes[i];
+        const fontPx = 11 * ls;
+        const free = (box) => inView(box) && !placed.some((p) => hits(box, p)) && !circles.some((c, k) => k !== i && hits(box, c));
+        // Below the dot, or above it when that's taken.
+        let box = null;
+        for (const y of [n.r + fontPx + 2 * ls, -n.r - 4 * ls]) {
+          box = put(text, n.x, n.y, y);
+          if (free(box)) break;
+          box = null;
+        }
+        if (keep(i) && !box) placed.push(put(text, n.x, n.y, n.r + fontPx + 2 * ls)); // the reader's or hovered article always keeps its label
+        else if (box) placed.push(box);
+        else {
+          put(text, n.x, n.y, n.r + fontPx + 2 * ls);
+          text.classList.add('crowded');
+        }
       }
     }
     let labelFrame = 0;
@@ -282,14 +392,17 @@
 
     svg.addEventListener('pointerover', (e) => {
       const el = e.target.closest('.node');
-      if (el && selected == null) highlight(Number(el.dataset.i));
+      if (selected != null) return;
+      if (el) highlight(Number(el.dataset.i));
+      else if (e.target.matches('.bundle')) highlight(null, bundles[Number(e.target.dataset.b)]);
     });
     svg.addEventListener('pointerout', (e) => {
-      if (e.target.closest('.node') && selected == null) highlight(null);
+      if ((e.target.closest('.node') || e.target.matches('.bundle')) && selected == null) highlight(null);
     });
     svg.addEventListener('click', (e) => {
       const el = e.target.closest('.node');
       if (el) select(Number(el.dataset.i));
+      else if (e.target.closest('.cluster text')) toggleTheme(e.target.closest('.cluster').dataset.facet);
     });
     svg.addEventListener('keydown', (e) => {
       const el = e.target.closest('.node');
@@ -323,12 +436,15 @@
       else if (t.matches('.ask-article')) {
         onAsk(nodes[selected].id);
         if (isOverlay) close();
-      } else if (t.matches('.legend-item')) {
-        themeFilter = themeFilter === t.dataset.facet ? null : t.dataset.facet;
-        box.querySelectorAll('.legend-item').forEach((b) => b.classList.toggle('active', b.dataset.facet === themeFilter));
-        select(null);
-      }
+      } else if (t.matches('.legend-item')) toggleTheme(t.dataset.facet);
     });
+
+    function toggleTheme(facet) {
+      themeFilter = themeFilter === facet ? null : facet;
+      box.querySelectorAll('.legend-item').forEach((b) => b.classList.toggle('active', b.dataset.facet === themeFilter));
+      svg.querySelectorAll('.cluster').forEach((c) => c.classList.toggle('active', c.dataset.facet === themeFilter));
+      select(null);
+    }
 
     return close;
   }
