@@ -249,6 +249,12 @@ $('clearCache').addEventListener('click', async () => {
   await W.topics.handle({ type: 'cache:clear' });
   showStorage();
 });
+$('clearTopics').addEventListener('click', async () => {
+  const n = (await W.topics.handle({ type: 'topics:list' })).length;
+  if (!n || !confirm(`Delete all ${n} saved topic${n > 1 ? 's' : ''} and the chats in them? Chats about single articles stay.`)) return;
+  await W.topics.handle({ type: 'topics:clear' });
+  showStorage();
+});
 
 // ---------- Start ----------
 

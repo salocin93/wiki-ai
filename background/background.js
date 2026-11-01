@@ -77,7 +77,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'openOptions') chrome.runtime.openOptionsPage();
-  if (/^(topics|cache|conv):/.test(msg.type)) {
+  if (/^(topics|cache|conv|data):/.test(msg.type)) {
     W.topics
       .handle(msg)
       .then((result) => sendResponse({ result }))
