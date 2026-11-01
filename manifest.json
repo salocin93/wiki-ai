@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Wiki AI",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Chat with a local LLM about the Wikipedia article you're reading and the articles it links to.",
   "permissions": [
     "storage",
