@@ -1,4 +1,13 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="icons/logo-dark.svg">
+    <img src="icons/logo.svg" alt="Wiki AI" width="240">
+  </picture>
+</p>
+
 # Wiki AI
+
+> Wiki AI is an independent project. It is not affiliated with, endorsed by or sponsored by Wikipedia or the Wikimedia Foundation. Wikipedia is a trademark of the Wikimedia Foundation.
 
 A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia articles. You can ask about the article you're reading and the articles it links to. It works with Google Gemini (free API key) or any OpenAI-compatible endpoint, including models you run yourself.
 

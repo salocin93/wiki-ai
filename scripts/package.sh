@@ -13,7 +13,8 @@ rm -f "$out"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir "$stage/wiki-ai"
-cp -R manifest.json background content lib options TESTING.md "$stage/wiki-ai/"
+cp -R manifest.json background content lib options icons TESTING.md "$stage/wiki-ai/"
+rm -f "$stage/wiki-ai/icons/logo-dark.svg" # only the README uses it
 find "$stage" -name '.DS_Store' -delete
 
 (cd "$stage" && zip -qr - wiki-ai) > "$out"
