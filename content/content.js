@@ -5,7 +5,8 @@
 
   const W = globalThis.WikiAI;
   const article = document.querySelector('#mw-content-text .mw-parser-output');
-  if (!article || !document.body.classList.contains('ns-0')) return; // only main-namespace articles
+  // Only main-namespace articles; the Main Page is in that namespace but is a portal of boxes.
+  if (!article || !document.body.classList.contains('ns-0') || document.body.classList.contains('page-Main_Page')) return;
 
   const canonical = document.querySelector('link[rel=canonical]')?.href || location.href;
   const lang = new URL(canonical).hostname.split('.')[0];
@@ -746,7 +747,7 @@
         closeMap?.();
         setView('chat');
         if (!topicHere()) await setScope(true);
-        const q = `Tell me about ${t2} and how it connects to ${t.name}.`;
+        const q = phrases().about(t2);
         if (state.busy) {
           input.value = q;
           autosize();
@@ -950,7 +951,8 @@
     const listEl = historyEl.querySelector('.history-lists');
     if (!listEl) return;
     const q = state.historyFilter.trim().toLowerCase();
-    const match = (t) => !q || (t || '').toLowerCase().includes(q);
+    // Matches the title or anything said in the chat.
+    const match = (c) => !q || [c.title, c.text ?? c.messages?.map((m) => m.content || '').join('\n')].some((t) => (t || '').toLowerCase().includes(q));
     const row = ({ scope, id, title: t, questions, updatedAt, here, running }) => `
       <li class="${here ? 'here' : ''}">
         <button class="link ${scope ? 'open-saved-chat' : 'open-chat'}" data-id="${id}" ${scope ? `data-scope="${esc(scope)}"` : ''}>${esc(truncate(t || 'Chat', 70))}</button>
@@ -959,17 +961,17 @@
       </li>`;
 
     const here = state.convs
-      .filter((c) => c.messages.length && match(c.title))
+      .filter((c) => c.messages.length && match(c))
       .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
       .map((c) => row({ id: c.id, title: c.title, questions: c.messages.filter((m) => m.role === 'user').length, updatedAt: c.updatedAt || c.createdAt, here: c.id === conv()?.id, running: state.request === c }));
     for (const c of state.allChats) {
-      if (c.scope === state.scope && !convById(c.id) && match(c.title)) here.push(row(c)); // saved in another tab
+      if (c.scope === state.scope && !convById(c.id) && match(c)) here.push(row(c)); // saved in another tab
     }
     const where = topicHere() ? `in the topic “${esc(topicHere().name)}”` : `about “${esc(title)}”`;
 
     const groups = new Map();
     for (const c of state.allChats) {
-      if (c.scope === state.scope || !match(c.title)) continue;
+      if (c.scope === state.scope || !match(c)) continue;
       if (!groups.has(c.scope)) groups.set(c.scope, []);
       groups.get(c.scope).push(c);
     }
@@ -989,7 +991,7 @@
     listEl.innerHTML = `
       <h4>Chats ${where}</h4>
       ${here.length ? `<ul>${here.join('')}</ul>` : `<p class="why">${q ? 'No matching chats here.' : 'No saved chats here yet.'}</p>`}
-      ${others ? `<h4>Other topics and articles</h4>${others}` : q && !here.length ? '' : ''}`;
+      ${others ? `<h4>Other topics and articles</h4>${others}` : ''}`;
   }
 
   function applyPendingChat() {
@@ -1035,56 +1037,61 @@
       summary: 'Summarize this article in a few bullet points',
       section: 'Explain the section I am reading',
       readNext: 'Which linked articles should I read next, and why?',
-      overview: (t) => `Give me an overview of ${t} and its main themes`,
+      overview: 'Give me an overview of this topic and its main themes',
       connect: (a, b) => `How is “${a}” connected to “${b}”?`,
       connected: 'How are the articles in this topic connected?',
       theme: (c) => `What should I know about “${c}”?`,
-      readFirst: (t) => `Which articles in ${t} should I read first, and why?`,
-      fit: (x, t) => `How does ${x} fit into ${t}?`,
+      readFirst: 'Which articles in this topic should I read first, and why?',
+      fit: (x) => `How does ${x} fit into this topic?`,
+      about: (x) => `Tell me about ${x} and how it connects to the rest of this topic.`,
     },
     de: {
       summary: 'Fasse diesen Artikel in ein paar Stichpunkten zusammen',
       section: 'Erkläre den Abschnitt, den ich gerade lese',
       readNext: 'Welche verlinkten Artikel sollte ich als Nächstes lesen, und warum?',
-      overview: (t) => `Gib mir einen Überblick über ${t} und die wichtigsten Themen`,
+      overview: 'Gib mir einen Überblick über dieses Thema und seine wichtigsten Schwerpunkte',
       connect: (a, b) => `Wie hängt „${a}“ mit „${b}“ zusammen?`,
       connected: 'Wie hängen die Artikel dieses Themas zusammen?',
       theme: (c) => `Was sollte ich über „${c}“ wissen?`,
-      readFirst: (t) => `Welche Artikel zu ${t} sollte ich zuerst lesen, und warum?`,
-      fit: (x, t) => `Wie passt ${x} in ${t}?`,
+      readFirst: 'Welche Artikel dieses Themas sollte ich zuerst lesen, und warum?',
+      fit: (x) => `Wie passt ${x} in dieses Thema?`,
+      about: (x) => `Erzähl mir von ${x} und wie es mit dem Rest dieses Themas zusammenhängt.`,
     },
     fr: {
       summary: 'Résume cet article en quelques points',
       section: 'Explique la section que je lis',
       readNext: 'Quels articles liés devrais-je lire ensuite, et pourquoi ?',
-      overview: (t) => `Donne-moi une vue d'ensemble de ${t} et de ses thèmes principaux`,
+      overview: "Donne-moi une vue d'ensemble de ce sujet et de ses thèmes principaux",
       connect: (a, b) => `Quel est le lien entre « ${a} » et « ${b} » ?`,
       connected: 'Quels liens existent entre les articles de ce sujet ?',
       theme: (c) => `Que faut-il savoir sur « ${c} » ?`,
-      readFirst: (t) => `Quels articles sur ${t} devrais-je lire en premier, et pourquoi ?`,
-      fit: (x, t) => `Quelle place occupe ${x} dans ${t} ?`,
+      readFirst: 'Quels articles de ce sujet devrais-je lire en premier, et pourquoi ?',
+      fit: (x) => `Quelle place occupe ${x} dans ce sujet ?`,
+      about: (x) => `Parle-moi de ${x} et de ses liens avec le reste de ce sujet.`,
     },
     es: {
       summary: 'Resume este artículo en unos pocos puntos',
       section: 'Explica la sección que estoy leyendo',
       readNext: '¿Qué artículos enlazados debería leer a continuación y por qué?',
-      overview: (t) => `Dame una visión general de ${t} y sus temas principales`,
+      overview: 'Dame una visión general de este tema y sus aspectos principales',
       connect: (a, b) => `¿Qué relación hay entre «${a}» y «${b}»?`,
       connected: '¿Cómo se relacionan los artículos de este tema?',
       theme: (c) => `¿Qué debería saber sobre «${c}»?`,
-      readFirst: (t) => `¿Qué artículos sobre ${t} debería leer primero y por qué?`,
-      fit: (x, t) => `¿Qué papel tiene ${x} en ${t}?`,
+      readFirst: '¿Qué artículos de este tema debería leer primero y por qué?',
+      fit: (x) => `¿Qué papel tiene ${x} en este tema?`,
+      about: (x) => `Háblame de ${x} y de su relación con el resto de este tema.`,
     },
     it: {
       summary: 'Riassumi questo articolo in pochi punti',
       section: 'Spiega la sezione che sto leggendo',
       readNext: 'Quali articoli collegati dovrei leggere dopo, e perché?',
-      overview: (t) => `Dammi una panoramica di ${t} e dei suoi temi principali`,
+      overview: 'Dammi una panoramica di questo argomento e dei suoi temi principali',
       connect: (a, b) => `Che legame c'è tra «${a}» e «${b}»?`,
       connected: 'Come sono collegati gli articoli di questo argomento?',
       theme: (c) => `Cosa dovrei sapere su «${c}»?`,
-      readFirst: (t) => `Quali articoli su ${t} dovrei leggere per primi, e perché?`,
-      fit: (x, t) => `Che ruolo ha ${x} in ${t}?`,
+      readFirst: 'Quali articoli di questo argomento dovrei leggere per primi, e perché?',
+      fit: (x) => `Che ruolo ha ${x} in questo argomento?`,
+      about: (x) => `Parlami di ${x} e di come si collega al resto di questo argomento.`,
     },
   };
 
@@ -1112,10 +1119,10 @@
     const p = phrases();
     const [a, b, c] = t.facets.filter((f) => f.name !== W_ADDED && t.pages.some((x) => x.facet === f.name));
     return [
-      p.overview(t.name),
+      p.overview,
       a && b ? p.connect(a.name, b.name) : p.connected,
       c ? p.theme(c.name) : null,
-      title === t.seed || title === t.name ? p.readFirst(t.name) : p.fit(title, t.name),
+      title === t.seed || title === t.name ? p.readFirst : p.fit(title),
     ].filter(Boolean);
   }
 
@@ -1173,6 +1180,9 @@
     return i % PAGE_COLORS;
   }
 
+  // Whether a source is from the page open now (a chat may have been started on another page).
+  const isHere = (src) => src.lang === lang && src.page === title;
+
   function citeAttrs(n) {
     const s = conv().sources[n - 1];
     return { title: `${s.page} › ${s.section}`, className: `c${pageColor(s.page)}` };
@@ -1190,12 +1200,16 @@
     return `<div class="sources">${[...groups]
       .map(([page, items]) => {
         const first = items[0];
-        const pageEl = first.current
+        const pageEl = isHere(first)
           ? `<span class="page-name">${esc(page)}</span><span class="tag">this article</span>`
           : `<a class="page-name" href="${articleUrl(first)}" target="_blank" rel="noopener" title="Open “${esc(page)}”">${esc(page)} ↗</a>`;
+        const where = (s) => s.section.split(' › ').pop();
+        // Several passages from one section: tell them apart by their opening words.
+        const repeated = (s) => items.filter((x) => where(x) === where(s)).length > 1;
+        const label = (s) => (repeated(s) ? `${where(s)} · ${truncate(s.text.replace(/\s+/g, ' ').trim(), 22)}` : where(s));
         const sections = items
           .sort((a, b) => a.n - b.n)
-          .map((s) => `<button class="source" data-n="${s.n}" title="${esc(s.text.slice(0, 200))}"><span class="num">${s.n}</span><span class="where">${esc(s.section.split(' › ').pop())}</span></button>`)
+          .map((s) => `<button class="source" data-n="${s.n}" title="${esc(s.text.slice(0, 200))}"><span class="num">${s.n}</span><span class="where">${esc(label(s))}</span></button>`)
           .join('');
         return `<div class="source-group c${pageColor(page)}"><div class="page-row">${pageEl}</div><div class="chips">${sections}</div></div>`;
       })
@@ -1369,6 +1383,7 @@
     setBusy(true);
     renderChatBar();
     render();
+    messagesEl.scrollTop = messagesEl.scrollHeight; // show the new question even if the chat was scrolled up
     connect().postMessage({
       type: 'ask',
       question,
@@ -1392,7 +1407,7 @@
       </div>
       <div class="preview-text">${W.markdown.esc(src.text)}</div>
       <div class="preview-actions">
-        ${src.current ? '<button class="link show-in-page">Show in article</button>' : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener">Open “${W.markdown.esc(src.page)}” ↗</a>`}
+        ${isHere(src) ? '<button class="link show-in-page">Show in article</button>' : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener">Open “${W.markdown.esc(src.page)}” ↗</a>`}
       </div>`;
     previewEl.dataset.n = src.n;
   }
@@ -1400,7 +1415,7 @@
   function onCite(n) {
     const src = conv().sources[n - 1];
     if (!src) return;
-    if (src.current) {
+    if (isHere(src)) {
       const found = highlightSource(src);
       if (found) previewEl.hidden = true;
       else showPreview(src);

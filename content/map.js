@@ -165,6 +165,8 @@
     const card = box.querySelector('.map-card');
     const lines = [...svg.querySelectorAll('line')];
     const nodeEls = [...svg.querySelectorAll('.node')];
+    const hereEl = svg.querySelector('.node.here');
+    if (hereEl) hereEl.parentNode.appendChild(hereEl); // drawn last, so no circle covers its label
     let selected = null;
     let themeFilter = null;
 
@@ -208,7 +210,35 @@
 
     // Zoom and pan by changing the viewBox.
     const view = { x: 0, y: 0, w, h };
-    const applyView = () => svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
+    const applyView = () => {
+      svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
+      scheduleLabels();
+    };
+
+    // Labels keep their size on screen while zooming; where they would overlap, the less connected
+    // article's label is hidden until it's hovered or selected, so zooming in reveals more of them.
+    const order = nodes.map((n, i) => i).sort((a, b) => (nodes[b].id === currentTitle) - (nodes[a].id === currentTitle) || nodes[b].deg - nodes[a].deg);
+    function placeLabels() {
+      svg.style.setProperty('--label-scale', String(view.w / w));
+      const hits = (a, b) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+      const circles = nodes.map((n) => ({ x1: n.x - n.r, y1: n.y - n.r, x2: n.x + n.r, y2: n.y + n.r }));
+      const placed = [];
+      for (const i of order) {
+        const text = nodeEls[i].querySelector('text');
+        text.classList.remove('crowded');
+        const b = text.getBBox();
+        const box = { x1: nodes[i].x + b.x - 2, y1: nodes[i].y + b.y - 1, x2: nodes[i].x + b.x + b.width + 2, y2: nodes[i].y + b.y + b.height + 1 };
+        const here = nodes[i].id === currentTitle; // the reader's article always keeps its label
+        if (!here && (placed.some((p) => hits(box, p)) || circles.some((c, k) => k !== i && hits(box, c)))) text.classList.add('crowded');
+        else placed.push(box);
+      }
+    }
+    let labelFrame = 0;
+    function scheduleLabels() {
+      cancelAnimationFrame(labelFrame);
+      labelFrame = requestAnimationFrame(placeLabels);
+    }
+    placeLabels();
     const toSvg = (e) => {
       const r = svg.getBoundingClientRect();
       return { x: view.x + ((e.clientX - r.left) / r.width) * view.w, y: view.y + ((e.clientY - r.top) / r.height) * view.h };

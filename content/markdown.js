@@ -7,15 +7,18 @@
   // Matches [3], [2, 5], [Source 3] and 【3】.
   const CITE = /(?:\[|【)\s*(?:sources?\s*)?(\d{1,3}(?:\s*[,;]\s*(?:sources?\s*)?\d{1,3})*)\s*(?:\]|】)/gi;
 
+  const CITE_SPACED = new RegExp(`(\\s*)${CITE.source}`, 'gi');
+
   function inline(text, known, attrs) {
     let s = esc(text);
     s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
-    s = s.replace(CITE, (whole, nums) => {
-      const ns = nums.match(/\d+/g).map(Number);
-      if (!ns.every((n) => known(n))) return whole;
-      return ns
+    // Numbers the model made up (no such source) are dropped, with the space before them.
+    s = s.replace(CITE_SPACED, (whole, space, nums) => {
+      const ns = nums.match(/\d+/g).map(Number).filter((n) => known(n));
+      if (!ns.length) return '';
+      return space + ns
         .map((n) => {
           const a = attrs?.(n) || {};
           return `<button class="cite ${a.className || ''}" data-n="${n}" title="${esc(a.title || `Source ${n}`)}">${n}</button>`;

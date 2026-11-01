@@ -217,9 +217,13 @@ textarea:focus { border-color: var(--accent); }
 .map-svg .node.here circle { stroke: var(--text); stroke-width: 2.5; }
 .map-svg .node.selected circle { stroke: var(--text); stroke-width: 3; }
 .map-svg .node text {
-  font-size: 11.5px; text-anchor: middle; fill: var(--text);
-  paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round;
+  font-size: calc(11.5px * var(--label-scale, 1)); text-anchor: middle; fill: var(--text);
+  paint-order: stroke; stroke: var(--bg); stroke-width: calc(3px * var(--label-scale, 1)); stroke-linejoin: round;
 }
+/* Labels that would overlap another; shown when their article is hovered, selected or highlighted. */
+.map-svg .node text.crowded { visibility: hidden; }
+.map-svg .node:hover text.crowded, .map-svg .node:focus-visible text.crowded,
+.map-svg .node.selected text.crowded, .map-svg.focus .node.hl text.crowded { visibility: visible; }
 .map-svg .node:focus-visible { outline: none; }
 .map-svg .node:focus-visible circle { stroke: var(--accent); stroke-width: 3; }
 .map-svg.focus .node:not(.hl):not(.selected) { opacity: 0.18; }
@@ -305,7 +309,7 @@ button.primary { padding: 8px 14px; border-radius: 8px; border: none; background
 .map-inline .map-head { flex-wrap: wrap; gap: 6px 10px; padding: 10px 12px; }
 .map-inline .map-title { max-width: none; flex: 1; }
 .map-inline .legend { flex-basis: 100%; justify-content: flex-start; order: 3; }
-.map-inline .map-svg .node text { font-size: 10px; }
+.map-inline .map-svg .node text { font-size: calc(10px * var(--label-scale, 1)); }
 .map-inline .map-card { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 55%; }
 .map-inline .map-hint { right: 10px; bottom: 6px; }
 
