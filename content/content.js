@@ -741,6 +741,12 @@
 
   function buildTopic() {
     if (!ensureAlive()) return;
+    if (isDisambiguation()) {
+      state.topicError = `“${title}” is a disambiguation page: it lists different meanings, so there's no single subject to build a topic around. Open the meaning you want and build the topic there.`;
+      if (state.view !== 'topic') setView('topic');
+      else renderTopic();
+      return;
+    }
     state.building = BUILDING;
     state.topicError = null;
     renderTopic();
@@ -1162,12 +1168,16 @@
     } catch {}
   }
 
+  // A page that lists the meanings of a name ("Mercury"): no single subject to build a topic around.
+  const isDisambiguation = () =>
+    !!document.querySelector('#disambigbox, .dmbox-disambig') || /\b(disambiguation|begriffsklärung)\b/i.test(document.querySelector('#mw-normal-catlinks')?.textContent || '');
+
   // Starter questions about this article, from the page itself (no model call): its name, the section
   // on screen, its most-mentioned link. Stubs get fewer; a disambiguation page asks which meaning.
   function starterSuggestions() {
     const p = phrases();
     const linked = collectLinks().filter((l) => l.count > 0);
-    if (document.querySelector('#disambigbox, .dmbox-disambig') || /\b(disambiguation|begriffsklärung)\b/i.test(document.querySelector('#mw-normal-catlinks')?.textContent || '')) {
+    if (isDisambiguation()) {
       return [p.meanings(title), ...linked.slice(0, 2).map((l) => p.whatIs(l.title))];
     }
     const sections = headings().map(headingText).filter((h) => !BACK_MATTER.test(h));
@@ -1225,7 +1235,7 @@
           ${t ? topicCard(t) : articleCard()}
           <div class="fu-label">Try asking</div>
           ${(t ? topicSuggestions(t) : starterSuggestions()).map((q) => `<button class="suggestion">${esc(q)}</button>`).join('')}
-          ${state.topic || state.building ? '' : '<p class="why">Want to explore this subject across many articles? <button class="link build-topic">Build a topic cluster</button></p>'}
+          ${state.topic || state.building || isDisambiguation() ? '' : '<p class="why">Want to explore this subject across many articles? <button class="link build-topic">Build a topic cluster</button></p>'}
           ${open ? `<p class="why">${open} suggested question${open > 1 ? 's' : ''} from earlier chats are waiting in <button class="link go-topic">Topic › Questions to explore</button>.</p>` : ''}
         </div>`;
       return;

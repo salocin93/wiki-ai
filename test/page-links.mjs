@@ -5,7 +5,25 @@ const strip = (h) => h.replace(/<sup[\s\S]*?<\/sup>/g, '').replace(/<[^>]+>/g, '
 export async function pageLinks(lang, title) {
   const url = `https://${lang}.wikipedia.org/w/api.php?action=parse&prop=text&formatversion=2&format=json&origin=*&page=${encodeURIComponent(title)}`;
   const html = (await (await fetch(url)).json()).parse.text;
-  const navStart = html.search(/<div[^>]*class="navbox/);
+  // Navigation boxes as [start, end] ranges: elements whose class list has "navbox" (not "navbox-styles"),
+  // matched to their closing tag, like el.closest('.navbox') in the extension.
+  const navRanges = [];
+  for (const m of html.matchAll(/<(div|table)\b[^>]*class="(?:[^"]*\s)?navbox(?:\s[^"]*)?"[^>]*>/g)) {
+    if (navRanges.some(([a, b]) => m.index > a && m.index < b)) continue;
+    const tag = new RegExp(`<${m[1]}\\b|</${m[1]}>`, 'g');
+    tag.lastIndex = m.index + 1;
+    let depth = 1;
+    let end = html.length;
+    for (let t; (t = tag.exec(html)); ) {
+      depth += t[0][1] === '/' ? -1 : 1;
+      if (!depth) {
+        end = tag.lastIndex;
+        break;
+      }
+    }
+    navRanges.push([m.index, end]);
+  }
+  const inNavbox = (at) => navRanges.some(([a, b]) => at > a && at < b);
   const info = html.match(/<table class="infobox[\s\S]*?<\/table>/)?.index ?? -1;
   const infoEnd = info >= 0 ? info + html.slice(info).indexOf('</table>') : -1;
   const map = new Map();
@@ -20,7 +38,7 @@ export async function pageLinks(lang, title) {
     if (/^[A-Za-z ]+:/.test(target) || target === title) continue;
     const at = m.index;
     const signals = [];
-    if (navStart >= 0 && at > navStart) signals.push('navbox');
+    if (inNavbox(at)) signals.push('navbox');
     if (info >= 0 && at > info && at < infoEnd) signals.push('infobox');
     const blockStart = Math.max(html.lastIndexOf('<p>', at), html.lastIndexOf('<li', at), html.lastIndexOf('<div role="note"', at));
     const block = html.slice(blockStart, html.indexOf('</', at + m[0].length) + 400);
