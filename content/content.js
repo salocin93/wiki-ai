@@ -500,7 +500,8 @@
   // ---------- Topic clusters ----------
 
   // After the extension is reloaded or updated, this script stays on the page but loses its connection
-  // (chrome.runtime goes away). Show a reload prompt instead of failing on every click.
+  // (chrome.runtime goes away). Show a reload prompt instead of failing on every click; nothing throws,
+  // so Chrome doesn't list an error for the extension.
   const extensionAlive = () => {
     try {
       return !!chrome.runtime?.id;
@@ -510,19 +511,18 @@
   };
 
   function ensureAlive() {
-    if (extensionAlive()) return;
+    if (extensionAlive()) return true;
     messagesEl.innerHTML = `<div class="stale">Wiki AI was updated or reloaded. <button class="link reload-page">Reload this page</button> to keep using it.</div>`;
     topicEl.innerHTML = '';
-    throw new Error('Extension context invalidated');
+    return false;
   }
 
   function openOptions() {
-    ensureAlive();
-    chrome.runtime.sendMessage({ type: 'openOptions' });
+    if (ensureAlive()) chrome.runtime.sendMessage({ type: 'openOptions' });
   }
 
   async function send(msg) {
-    ensureAlive();
+    if (!ensureAlive()) return new Promise(() => {}); // nothing will answer; callers just stop here
     const res = await chrome.runtime.sendMessage(msg);
     if (res?.error) throw new Error(res.error);
     return res?.result;
@@ -711,11 +711,7 @@
   const BUILDING = 'Generating topic cluster…';
 
   function buildTopic() {
-    try {
-      ensureAlive();
-    } catch {
-      return;
-    }
+    if (!ensureAlive()) return;
     state.building = BUILDING;
     state.topicError = null;
     renderTopic();
@@ -1291,7 +1287,6 @@
 
   function connect() {
     if (state.port) return state.port;
-    ensureAlive();
     const port = chrome.runtime.connect({ name: 'wikiai-chat' });
     port.onMessage.addListener(onAgentMessage);
     port.onDisconnect.addListener(() => {
@@ -1376,11 +1371,7 @@
   function ask(question, c = conv()) {
     question = question.trim();
     if (!question || state.busy) return;
-    try {
-      ensureAlive();
-    } catch {
-      return;
-    }
+    if (!ensureAlive()) return;
     const history = [
       ...(c.context || []),
       ...c.messages
