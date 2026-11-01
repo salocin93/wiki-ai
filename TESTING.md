@@ -27,7 +27,7 @@ Keep the `wiki-ai` folder where it is; Chrome loads the extension from it.
 - Free Gemini keys have rate limits. If you ask many questions quickly, the panel waits and retries ("Rate limit reached, trying again in … s").
 - On Google's free tier, Google may use your requests to improve its products. Don't paste anything private.
 - Answers are checked against the Wikipedia passages the model read. Anything that couldn't be matched, like a date or name from the model's own memory, is underlined; hover over it to see why.
-- Your chats and topics are stored only in your browser. The trash button at the top of the panel deletes all of them, to start a test over (your settings and key stay).
+- Your chats and topics are stored only in your browser. To start a test over, open Settings › Storage › **Delete all topics and chats** (your settings and key stay).
 
 ## Feedback
 

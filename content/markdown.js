@@ -21,7 +21,8 @@
       return space + ns
         .map((n) => {
           const a = attrs?.(n) || {};
-          return `<button class="cite ${a.className || ''}" data-n="${n}" title="${esc(a.title || `Source ${n}`)}">${n}</button>`;
+          const label = a.label ?? n;
+          return `<button class="cite ${a.className || ''}" data-n="${n}" data-label="${label}" title="${esc(a.title || `Source ${label}`)}" aria-label="Source ${label}${a.title ? `: ${esc(a.title)}` : ''}">${label}</button>`;
         })
         .join('');
     });
@@ -30,7 +31,7 @@
 
   let flagNotes = [];
 
-  // attrs(n) may return {title, className} for citation n.
+  // attrs(n) may return {title, className, label} for citation n; label is the number shown (default n).
   // flagged: [{text, note}], sentences to underline as not matched to the sources.
   function render(src, known = () => true, attrs, flagged = []) {
     flagNotes = flagged.map((f) => f.note);

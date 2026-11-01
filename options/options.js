@@ -265,7 +265,8 @@ $('answerLanguage').addEventListener('change', () => {
 async function showStorage() {
   const s = await W.topics.handle({ type: 'cache:stats' });
   const mb = s.bytes != null ? ` · about ${(s.bytes / 1e6).toFixed(1)} MB in total` : '';
-  $('storage').textContent = `${s.entries} cached Wikipedia responses · ${s.topics} saved topics${mb}`;
+  const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  $('storage').textContent = `${count(s.entries, 'cached Wikipedia response', 'cached Wikipedia responses')} · ${count(s.topics, 'saved topic', 'saved topics')}${mb}`;
 }
 $('clearCache').addEventListener('click', async () => {
   await W.topics.handle({ type: 'cache:clear' });
@@ -277,10 +278,17 @@ $('clearTopics').addEventListener('click', async () => {
   await W.topics.handle({ type: 'topics:clear' });
   showStorage();
 });
+// Starts over with no topics, chats or cached articles; settings and keys stay. Used to sit in the sidebar header.
+$('clearAll').addEventListener('click', async () => {
+  if (!confirm("Delete all topics, all chats and the article cache? Your settings and API keys stay. This can't be undone.")) return;
+  await W.topics.handle({ type: 'data:clear' });
+  showStorage();
+});
 
 // ---------- Start ----------
 
 (async function init() {
+  $('version').textContent = `Wiki AI ${chrome.runtime.getManifest().version}`;
   settings = await W.settings.load();
   if (!W.settings.PRESETS[settings.provider]) settings = { ...settings, provider: Object.keys(W.settings.PRESETS)[0] };
   apiKeys = { ...(settings.apiKeys || {}), [settings.provider]: settings.apiKey };

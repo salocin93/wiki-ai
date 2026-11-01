@@ -295,7 +295,7 @@
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
     </button>
     <button class="ask-selection" hidden>Ask about this</button>
-    <aside class="panel" hidden>
+    <aside class="panel" aria-label="Wiki AI" hidden>
       <header>
         <img class="mark" src="${chrome.runtime.getURL('icons/mascot.svg')}" alt="">
         <div class="titles">
@@ -304,9 +304,6 @@
         </div>
         <button class="icon new" title="New chat" aria-label="New chat">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
-        <button class="icon delete-all" title="Delete all data (for testing)" aria-label="Delete all data">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
         </button>
         <button class="icon settings" title="Settings" aria-label="Settings">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -340,7 +337,7 @@
       <form class="composer">
         <div class="quote" hidden></div>
         <div class="row">
-          <textarea rows="1" placeholder="Ask about this article…"></textarea>
+          <textarea rows="1" placeholder="Ask about this article…" aria-label="Your question"></textarea>
           <button type="submit" class="send" title="Send" aria-label="Send">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </button>
@@ -532,7 +529,8 @@
   async function refreshTopic() {
     await loadLanguage();
     try {
-      state.topic = await send({ type: 'topics:active' });
+      // A topic opened on purpose stays; otherwise the one that has this article, so the scope fits the page.
+      state.topic = await send(state.useTopicHere === true ? { type: 'topics:active' } : { type: 'topics:forPage', lang, title });
       state.savedTopics = await send({ type: 'topics:list' });
     } catch {}
     renderTopic();
@@ -870,6 +868,8 @@
     if (!c) return;
     if (state.request === c) state.port?.postMessage({ type: 'stop' });
     state.convs = state.convs.filter((x) => x !== c);
+    // Also from the History's list of saved chats, which would otherwise show it again as "saved in another tab".
+    state.allChats = state.allChats.filter((x) => x.id !== id);
     if (c.messages.length) send({ type: 'conv:delete', scope: c.scope || state.scope, id }).catch(() => {});
     if (!state.convs.length) state.convs.push(newConv());
     if (state.activeId === id) state.activeId = state.convs[state.convs.length - 1].id;
@@ -897,8 +897,9 @@
       return;
     }
     const t = state.topic;
-    scopeBar.hidden = !t;
-    if (!t) return;
+    // Offer the topic only where it fits: on its own articles, or after the reader chose it here.
+    scopeBar.hidden = !t || !(inTopic() || topicHere());
+    if (scopeBar.hidden) return;
     const usingTopic = !!topicHere();
     const caption = usingTopic
       ? `Searching ${t.pages.length === 1 ? 'the 1 article' : `all ${t.pages.length} articles`} in the topic “${esc(t.name)}”`
@@ -1237,7 +1238,8 @@
   }
 
   // Sources under an answer, grouped by Wikipedia page; sections are secondary.
-  function renderSourceGroups(numbers) {
+  // labelOf maps a chat-wide source number to the number shown in this answer.
+  function renderSourceGroups(numbers, labelOf) {
     const groups = new Map();
     for (const n of numbers) {
       const s = conv().sources[n - 1];
@@ -1256,8 +1258,11 @@
         const repeated = (s) => items.filter((x) => where(x) === where(s)).length > 1;
         const label = (s) => (repeated(s) ? `${where(s)} · ${truncate(s.text.replace(/\s+/g, ' ').trim(), 22)}` : where(s));
         const sections = items
-          .sort((a, b) => a.n - b.n)
-          .map((s) => `<button class="source" data-n="${s.n}" title="${esc(s.text.slice(0, 200))}"><span class="num">${s.n}</span><span class="where">${esc(label(s))}</span></button>`)
+          .sort((a, b) => labelOf.get(a.n) - labelOf.get(b.n))
+          .map((s) => {
+            const k = labelOf.get(s.n);
+            return `<button class="source" data-n="${s.n}" data-label="${k}" title="${esc(s.text.slice(0, 200))}" aria-label="Source ${k}: ${esc(page)}, ${esc(label(s))}"><span class="num">${k}</span><span class="where">${esc(label(s))}</span></button>`;
+          })
           .join('');
         return `<div class="source-group c${pageColor(page)}"><div class="page-row">${pageEl}</div><div class="chips">${sections}</div></div>`;
       })
@@ -1274,7 +1279,11 @@
       : '';
     const reasoning = m.reasoning ? `<details class="reasoning"${m.reasoningOpen ? ' open' : ''}><summary>Thinking</summary><div>${W.markdown.esc(m.reasoning)}</div></details>` : '';
     const flagged = m.pending ? [] : m.unsupported || [];
-    const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, citeAttrs, flagged)}</div>` : '';
+    // Sources are numbered across the chat; each answer shows its own as 1, 2, 3… in the order it cites them.
+    const cited = m.pending ? [] : W.markdown.citedNumbers(m.content || '').filter(known);
+    const labelOf = new Map(cited.map((n, k) => [n, k + 1]));
+    const attrs = (n) => ({ ...citeAttrs(n), label: labelOf.get(n) });
+    const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, attrs, flagged)}</div>` : '';
     const grounding = flagged.length
       ? `<div class="grounding-note">Underlined parts couldn't be matched to the Wikipedia sources. Hover over them to see why.</div>`
       : '';
@@ -1282,8 +1291,7 @@
     const error = m.error
       ? `<div class="error">${W.markdown.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}</div>`
       : '';
-    const cited = m.pending ? [] : W.markdown.citedNumbers(m.content || '').filter(known);
-    const sources = cited.length ? renderSourceGroups(cited) : '';
+    const sources = cited.length ? renderSourceGroups(cited, labelOf) : '';
     const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}</div>` : '';
     const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
     const followups = !m.pending && m.followups?.length
@@ -1322,6 +1330,8 @@
     state.busy = busy;
     sendBtn.classList.toggle('stop', busy);
     sendBtn.title = busy ? 'Stop' : 'Send';
+    sendBtn.setAttribute('aria-label', busy ? 'Stop generating' : 'Send');
+    if (busy) state.busySince = Date.now();
     sendBtn.innerHTML = busy
       ? '<svg viewBox="0 0 24 24" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>'
       : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
@@ -1447,11 +1457,11 @@
     });
   }
 
-  function showPreview(src) {
+  function showPreview(src, label = src.n) {
     previewEl.hidden = false;
     previewEl.innerHTML = `
       <div class="preview-head c${pageColor(src.page)}">
-        <span class="num">${src.n}</span>
+        <span class="num">${W.markdown.esc(label)}</span>
         <span class="preview-title">
           <span class="page-name">${W.markdown.esc(src.page)}</span>
           <span class="section-name">${W.markdown.esc(src.section)}</span>
@@ -1465,14 +1475,14 @@
     previewEl.dataset.n = src.n;
   }
 
-  function onCite(n) {
+  function onCite(n, label) {
     const src = conv().sources[n - 1];
     if (!src) return;
     if (isHere(src)) {
       const found = highlightSource(src);
       if (found) previewEl.hidden = true;
-      else showPreview(src);
-    } else showPreview(src);
+      else showPreview(src, label);
+    } else showPreview(src, label);
   }
 
   function autosize() {
@@ -1485,12 +1495,6 @@
   launcher.addEventListener('click', () => setOpen(true));
   $('.close').addEventListener('click', () => setOpen(false));
   $('.settings').addEventListener('click', openOptions);
-  // For testing: start over with no topics, chats or cached articles (settings and keys stay).
-  $('.delete-all').addEventListener('click', async () => {
-    if (state.busy || !confirm('Delete all topics, chats and cached articles? Your settings and API keys stay.')) return;
-    await send({ type: 'data:clear' });
-    location.reload();
-  });
   $('.new').addEventListener('click', () => {
     if (state.view !== 'chat') setView('chat');
     newChat();
@@ -1498,8 +1502,10 @@
 
   $('.composer').addEventListener('submit', (e) => {
     e.preventDefault();
-    if (state.busy) state.port?.postMessage({ type: 'stop' });
-    else ask(input.value);
+    // The button turns into Stop under the cursor; the second click of a double-click isn't a stop.
+    if (state.busy) {
+      if (Date.now() - state.busySince > 500) state.port?.postMessage({ type: 'stop' });
+    } else ask(input.value);
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -1530,7 +1536,7 @@
   root.addEventListener('click', (e) => {
     const t = e.target.closest('button, a');
     if (!t) return;
-    if (t.matches('.cite, .source')) onCite(Number(t.dataset.n));
+    if (t.matches('.cite, .source')) onCite(Number(t.dataset.n), t.dataset.label);
     else if (t.matches('.suggestion')) ask(t.textContent);
     else if (t.matches('.clear-quote')) setQuote(null);
     else if (t.matches('.close-preview')) previewEl.hidden = true;
@@ -1540,7 +1546,11 @@
     else if (t.matches('.followup')) askSuggested(t.dataset.q);
     else if (t.matches('.open-saved-chat')) openSavedChat(t.dataset.scope, t.dataset.id);
     else if (t.matches('.delete-saved-chat')) {
-      if (confirm("Delete this chat? This can't be undone.")) send({ type: 'conv:delete', scope: t.dataset.scope, id: t.dataset.id }).then(loadAllChats, () => {});
+      if (confirm("Delete this chat? This can't be undone.")) {
+        state.allChats = state.allChats.filter((x) => x.id !== t.dataset.id);
+        renderHistoryLists();
+        send({ type: 'conv:delete', scope: t.dataset.scope, id: t.dataset.id }).then(loadAllChats, () => {});
+      }
     } else if (t.matches('.new-chat')) newChat();
     else if (t.matches('.open-chat')) openChat(t.dataset.id);
     else if (t.matches('.delete-chat')) {
