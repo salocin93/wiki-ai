@@ -17,7 +17,7 @@ const W = globalThis.WikiAI;
 
 async function loadSettings() {
   const settings = await W.settings.load();
-  if (!settings.apiKey && (settings.baseUrl.includes('ts.net') || W.settings.isGemini(settings))) {
+  if (!settings.apiKey && settings.provider !== 'custom') { // a server of your own may not need one
     throw new Error('No API key set. Open the Wiki AI settings, pick where answers come from and paste the key.');
   }
   return settings;

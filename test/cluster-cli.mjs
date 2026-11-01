@@ -1,6 +1,6 @@
 // Builds a topic cluster outside the browser, then optionally asks a question about it:
 //   node test/cluster-cli.mjs "House of Oldenburg" [model] ["question"]
-// Reads LITELLM_MASTER_KEY (or LOCAL_LLM_API_KEY) from the environment. Link signals are approximated from the
+// Reads LLM_API_KEY, and optionally LLM_BASE_URL (default: Gemini), from the environment. Link signals are approximated from the
 // article HTML with regexes; the extension reads them from the real DOM.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -14,7 +14,7 @@ const lang = 'en';
 
 import { pageLinks } from './page-links.mjs';
 
-const settings = { ...W.settings.DEFAULTS, apiKey: process.env.LOCAL_LLM_API_KEY || process.env.LITELLM_MASTER_KEY, ...(model ? { model } : {}) };
+const settings = { ...W.settings.DEFAULTS, ...(process.env.LLM_BASE_URL ? { baseUrl: process.env.LLM_BASE_URL, fallbackModel: "" } : {}), apiKey: process.env.LLM_API_KEY, ...(model ? { model } : {}) };
 const t0 = Date.now();
 const ts = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 const links = await pageLinks(lang, title);

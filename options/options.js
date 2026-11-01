@@ -3,14 +3,12 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const ABOUT = {
-  gateway: { title: 'My local models', blurb: 'Your own models on your tailnet' },
   gemini: { title: 'Google Gemini', blurb: "Google's API with a free key" },
   custom: { title: 'Other provider', blurb: 'Any OpenAI-compatible endpoint' },
 };
 const HELP = {
-  gateway: 'Answers come from your LiteLLM gateway. This device must be on your tailnet; the key is LITELLM_MASTER_KEY.',
   gemini: 'Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>: sign in, then "Create API key". Free keys have per-minute and daily limits, and Google may use free-tier requests to improve its products.',
-  custom: 'Any endpoint that speaks the OpenAI chat completions API with streaming and tool calling. Enter its address under Advanced connection.',
+  custom: 'Any endpoint that speaks the OpenAI chat completions API with streaming and tool calling. Enter its address under Advanced connection, then click Test connection: the browser asks once to let Wiki AI reach it.',
 };
 const NUMBER_FIELDS = ['maxSteps', 'maxAnswerTokens', 'contextTokens'];
 const LANGUAGES = ['en', 'de', 'fr', 'es', 'it', 'nl', 'pt', 'pl', 'sv', 'da', 'nb', 'fi', 'cs', 'ru', 'uk', 'tr', 'ja', 'zh', 'ko', 'ar'];
@@ -179,7 +177,7 @@ async function refreshModels({ probe = false } = {}) {
     fillModels();
     let text = `Connected · ${models.length} models available.${note}`;
     let state = note ? 'warn' : 'ok';
-    // Gateways can route models (e.g. "pc/*") they don't list; a one-token request checks those.
+    // Some servers route models they don't list; a one-token request checks those.
     const unlisted = [settings.model, settings.fallbackModel].filter((m) => m && !models.includes(m));
     if (probe && unlisted.length) {
       const results = [];
@@ -196,7 +194,7 @@ async function refreshModels({ probe = false } = {}) {
     if (id !== loadId) return;
     models = [];
     fillModels();
-    const hint = s.provider === 'gateway' ? 'Is this device on the tailnet, and is the key right?' : 'Is the key right?';
+    const hint = s.provider === 'custom' ? 'Is the address right, and did you allow Wiki AI to reach it (Test connection)?' : 'Is the key right?';
     connection('err', `Couldn't load models: ${e.message}. ${hint}`);
   }
 }
@@ -234,7 +232,28 @@ $('toggleKey').addEventListener('click', () => {
   $('apiKey').type = hidden ? 'text' : 'password';
   $('toggleKey').textContent = hidden ? 'Hide' : 'Show';
 });
-$('test').addEventListener('click', () => refreshModels({ probe: true }));
+$('test').addEventListener('click', async () => {
+  const s = collect();
+  if (s.baseUrl && !(await allowEndpoint(s.baseUrl))) return connection('err', `Wiki AI isn't allowed to reach ${s.baseUrl}. Click Test connection again and choose Allow.`);
+  refreshModels({ probe: true });
+});
+
+// Wikipedia, Gemini and this computer are allowed in the manifest; any other server needs the reader's
+// permission, which the browser only asks for during a click.
+async function allowEndpoint(baseUrl) {
+  if (!globalThis.chrome?.permissions) return true;
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return false;
+  }
+  try {
+    return await chrome.permissions.request({ origins: [`${url.protocol}//${url.hostname}/*`] });
+  } catch {
+    return false;
+  }
+}
 for (const id of ['disableThinking', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
 $('answerLanguage').addEventListener('change', () => {
   settings.answerLanguageChosen = true; // from now on this choice wins over the default

@@ -1,6 +1,6 @@
 # Wiki AI
 
-A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia articles. You can ask about the article you're reading and the articles it links to. It runs on your own models through the LiteLLM gateway on the tailnet (any OpenAI-compatible endpoint works).
+A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia articles. You can ask about the article you're reading and the articles it links to. It works with Google Gemini (free API key) or any OpenAI-compatible endpoint, including models you run yourself.
 
 ## What it does
 
@@ -14,7 +14,7 @@ A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia ar
   - **Topic**: the active topic's themes and articles, saved topics, and **Questions to explore**.
   - **Map**: the topic's articles as a graph (colored by theme, sized by connections, lines for links). Click an article for its summary, open it, or ask about it; enlarge the map over the article area.
 - **Suggested next questions.** Every answer ends with three follow-up questions. Clicking one continues the same chat; asked ones get a ✓. Suggestions you haven't asked yet, from all your chats, collect under **Topic › Questions to explore**, and asking one there continues the chat it came from.
-- **Falls back automatically.** If the PC model is off (HTTP 503), it retries on `mac/qwen3.5-9b-fast`.
+- **Falls back automatically.** If the main model is unavailable or rate-limited, it retries on the fallback model set in the settings.
 
 Toggle the sidebar with the round button (bottom right), the toolbar icon, or **Alt+Shift+W**.
 
@@ -61,13 +61,16 @@ Context stays small because the model pulls in text through tools rather than ge
 | Your selected text | `linked_article_summary` |
 | Top passages and candidate links for the question, found automatically | `search_linked_article` |
 
-Prompt budgets per model are in `lib/settings.js` (`contextFor`): 48k tokens for the PC model, 12k for the Mac 9B (it reads ~210 tok/s, so bigger prompts get slow).
+Prompt budgets per model are in `lib/settings.js` (`contextFor`): 32k tokens for Gemini, 16k otherwise. Set **Context tokens** in the settings to use more with a model that reads fast.
 
 ## Install
 
 ### Chrome
 1. `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick this folder.
-2. Open the extension's **Options**, paste your gateway key (`LITELLM_MASTER_KEY`), click **Test connection**, then **Save**.
+2. Open the extension's **Options** and pick where answers come from:
+   - **Google Gemini**: paste a free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+   - **Other provider**: enter the endpoint address and key under **Advanced connection**.
+3. Click **Test connection** (for your own server, allow Wiki AI to reach it when the browser asks), then **Save**.
 
 ### Safari
 ```bash
@@ -75,14 +78,15 @@ xcrun safari-web-extension-converter . --project-location ../wiki-ai-safari --ap
 ```
 Open the generated Xcode project, choose your Apple ID team under *Signing & Capabilities*, and run it. Then enable it in Safari → Settings → Extensions and allow it on wikipedia.org. Requires Safari 17.4+.
 
-The device must be on the tailnet. The key is stored only in the browser's extension storage.
+The key is stored only in the browser's extension storage.
 
 ## Testing
 
 **Agent against the real model, from the terminal:**
 ```bash
-set -a; . ~/.config/local-llm/env; set +a
-node test/agent-cli.mjs "Ada Lovelace" "Who was her mother and what was she known for?" mac/qwen3.5-9b
+export LLM_API_KEY=…                       # a Gemini key, or your endpoint's key
+export LLM_BASE_URL=https://…/v1           # leave unset for Gemini
+node test/agent-cli.mjs "Ada Lovelace" "Who was her mother and what was she known for?" [model]
 ```
 
 It prints each source check (`[grounding]`): numbers and names in the answer that aren't in any source the model read.
@@ -94,7 +98,7 @@ node test/grounding-check.mjs
 
 **Topic cluster against the real model** (link signals are approximated from the HTML):
 ```bash
-node test/cluster-cli.mjs "House of Oldenburg" mac/qwen3.5-9b "How is the House of Oldenburg connected to Denmark, Greece and Russia?"
+node test/cluster-cli.mjs "House of Oldenburg" [model] "How is the House of Oldenburg connected to Denmark, Greece and Russia?"
 ```
 
 **Sidebar UI without installing the extension** (real Wikipedia retrieval, scripted fake model, no key):
@@ -106,6 +110,6 @@ Then open http://127.0.0.1:8765/test/fixtures/ada.html.
 
 ## Known limits
 
-- Small models (the Mac 9B) sometimes answer from the introduction instead of opening a linked article. The PC model follows links more reliably.
+- Small models sometimes answer from the introduction instead of opening a linked article. Larger models follow links more reliably.
 - Highlighting finds passages by matching text. Passages with math or heavy templates fall back to scrolling to the section heading.
 - English stopwords only. Other-language Wikipedias work, with slightly noisier keyword search.
