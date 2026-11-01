@@ -7,15 +7,20 @@ vm.runInThisContext(readFileSync(new URL('../lib/grounding.js', import.meta.url)
 const G = globalThis.WikiAI.grounding;
 
 const seen = `[1] Ada Lovelace › Introduction
-Augusta Ada King, Countess of Lovelace (née Byron; 10 December 1815 – 27 November 1852) was an English mathematician. She married William King in 1835. King was made Earl of Lovelace in 1838. In 1843 she translated an article by Luigi Menabrea. Neoclassicism. Nobel Prize.`;
+Augusta Ada King, Countess of Lovelace (née Byron; 10 December 1815 – 27 November 1852) was an English mathematician. She married William King in 1835. King was made Earl of Lovelace in 1838. In 1843 she translated an article by Luigi Menabrea. Neoclassicism. Nobel Prize.
+[2] Iran–Iraq War › Introduction
+Iraq feared that Shia unrest would spread under Sunni rule. Iran and the United States clashed in the Gulf. France sold Exocet missiles. Reagan was elected in 1980.`;
 const exempt = 'Whom did Ada Lovelace marry? Ada Lovelace';
-const flags = (answer, opts = {}) => G.check(answer, seen, { exempt, ...opts }).map((f) => (f.missing.length ? f.missing.join(',') : 'uncited'));
+const flags = (answer, opts = {}) => G.check(answer, seen, { exempt, ...opts }).map((f) => f.missing.join(','));
 
 const cases = [
-  // [answer, expected flags (missing details, or "uncited"), name]
+  // [answer, expected flags (the missing details of each flagged sentence), name]
   ['Ada Lovelace married **William King** in 1835 [1]. He became Earl of Lovelace in 1838 [1].', [], 'supported'],
   ['She married William King in 1835 [1]. They moved to Paris in 1799 and met Charles Dickens [1].', ['1799,Paris,Charles,Dickens'], 'invented details'],
-  ['She married William King in 1835.\n\n- Her translation of Menabrea appeared in 1843 [1].', ['uncited'], 'no citation'],
+  ['She married William King in 1835.\n\n- Her translation of Menabrea appeared in 1843 [1].', [], 'no citation, but every detail is in the sources'],
+  ['Iraq was backed by:\n- The United States\n- France\n- North Korea', ['Korea'], 'list of names without citations'],
+  ['Tensions rose with the election of Ronald Reagan [2].', [], 'first name before a known surname'],
+  ['She met Charles Dickens [1].', ['Charles,Dickens'], 'invented first name and surname'],
   ['She was 40 years old when she died [1].', ['40'], 'wrong age'],
   ['She was 36 years old when she died.\n\nShe was born in 1815 and died in 1852 [1].', [], 'age worked out from years'],
   ['In the 20th century, she married William King [1].', [], 'century'],
@@ -32,6 +37,10 @@ const cases = [
     'translated answer: numbers only',
   ],
   ['She was born c. 1815 [1]. St. James was nearby [1].', ['James'], 'abbreviations don\'t end sentences'],
+  ['Shia unrest worried the Sunni-controlled government [2].', [], 'hyphenated word: its parts count'],
+  ['The Austro-Prussian war followed [2].', ['Austro,Prussian'], 'invented hyphenated name'],
+  ['Iranian and Iraqi forces fought; 37 American sailors died on a ship with French missiles [2].', ['37'], 'nationality words'],
+  ['Later, Brazilian ships joined in [2].', ['Brazilian'], 'nationality with no country in the sources'],
 ];
 
 let failed = 0;

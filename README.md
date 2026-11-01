@@ -85,7 +85,7 @@ set -a; . ~/.config/local-llm/env; set +a
 node test/agent-cli.mjs "Ada Lovelace" "Who was her mother and what was she known for?" mac/qwen3.5-9b
 ```
 
-It prints each source check (`[grounding]`): details in the answer that aren't in any source the model read, and sentences without a citation.
+It prints each source check (`[grounding]`): numbers and names in the answer that aren't in any source the model read.
 
 **Source check on known answers** (no model needed):
 ```bash
