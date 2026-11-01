@@ -298,7 +298,7 @@
     <aside class="panel" hidden>
       <header>
         <div class="titles">
-          <div class="name">Wiki AI</div>
+          <img class="name" src="${chrome.runtime.getURL('icons/wordmark.svg')}" alt="Wiki AI">
           <div class="sub"></div>
         </div>
         <button class="icon new" title="New chat" aria-label="New chat">
@@ -560,6 +560,10 @@
   const esc = (v) => W.markdown.esc(String(v ?? ''));
   const normQ = (q) => W.markdown.plain(q).toLowerCase().replace(/\s+/g, ' ').trim();
   const DOC_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>`;
+  const CHAT_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>`;
+  const MAP_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="5" r="2"/><circle cx="20" cy="5" r="2"/><circle cx="4" cy="19" r="2"/><circle cx="20" cy="19" r="2"/><path d="M9.6 10.2L5.5 6.4M14.4 10.2l4.1-3.8M9.6 13.8l-4.1 3.8M14.4 13.8l4.1 3.8"/></svg>`;
+  const CLOSE_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+  const PLUS_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
   const GRAPH_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6.4l7.4.4M7.3 8.2l3.6 7.6M16.8 9.2l-3.6 6.6"/></svg>`;
 
   // ---------- Views: Chat, Topic, Map ----------
@@ -606,30 +610,31 @@
     if (state.view !== 'topic') return;
     const t = state.topic;
     const parts = [];
-    if (state.building) {
-      parts.push(`<div class="topic-head building"><span class="dot"></span><span class="topic-status">${esc(state.building)}</span><button class="link stop-topic">Stop</button></div>`);
-    } else if (t) {
-      parts.push(`
-        <div class="topic-head">
-          <div class="topic-title">${GRAPH_ICON}<div><div class="topic-name">${esc(t.name)}</div><div class="topic-meta">${t.pages.length} articles · ${t.facets.length} themes</div></div></div>
-          ${inTopic() ? '' : `<div class="notice">This article isn't in the topic. <button class="link add-page">Add it</button></div>`}
-          <div class="topic-actions">
-            <button class="link go-map">Show map</button>
-            <button class="link rebuild-topic" title="Build a new cluster starting from this article">Rebuild from this article</button>
-            <button class="link leave-topic">Close topic</button>
-          </div>
-        </div>`);
-    } else {
+    if (state.topicError) parts.push(`<div class="topic-error">${esc(state.topicError)}</div>`);
+    if (!t && !state.building) {
       parts.push(`
         <div class="topic-head empty">
           <p>Questions now use <strong>${esc(title)}</strong> and the articles it links to. A topic cluster lets you explore a subject across many articles: the AI groups this article's most relevant links into themes, and answers search all of them.</p>
           <button class="primary build-topic">Build topic cluster</button>
         </div>`);
+      parts.push(savedTopicsSection());
+    } else {
+      // The open topic is the first card in the list, with its themes inside it; other saved topics follow, collapsed.
+      const newBtn = state.building
+        ? ''
+        : `<button class="pill new-topic build-topic" title="Build a new topic cluster starting from “${esc(title)}”">${PLUS_ICON}New topic</button>`;
+      const building = state.building
+        ? `<div class="topic-head building"><span class="dot"></span><span class="topic-status">${esc(state.building)}</span><button class="link stop-topic">Stop</button></div>`
+        : '';
+      parts.push(`
+        <section class="block topics">
+          <div class="block-head"><h4>Your topics</h4>${newBtn}</div>
+          ${building}
+          ${t ? openTopicCard(t) : ''}
+          ${savedTopicCards()}
+        </section>`);
     }
-    if (state.topicError) parts.push(`<div class="topic-error">${esc(state.topicError)}</div>`);
     parts.push(exploreSection());
-    if (t && !state.building) parts.push(themesSection(t));
-    parts.push(savedTopicsSection());
     topicEl.innerHTML = parts.join('');
   }
 
@@ -686,26 +691,51 @@
       })
       .join('');
     return `
-      <section class="block">
+      <section class="topic-card-body">
         <h4>Themes and articles</h4>
         ${seed.length ? `<ul class="seed">${seed.map(pageRow).join('')}</ul>` : ''}
         ${facets}
       </section>`;
   }
 
-  function savedTopicsSection() {
-    if (!state.savedTopics.length) return '';
-    const rows = state.savedTopics
+  function openTopicCard(t) {
+    return `
+      <article class="topic-card open">
+        <div class="topic-card-head">
+          <div class="topic-title">${GRAPH_ICON}<div class="grow"><div class="topic-name">${esc(t.name)}</div><div class="topic-meta">${t.pages.length} articles · ${t.facets.length} themes</div></div>
+            <button class="icon leave-topic" title="Close topic (it stays saved)" aria-label="Close topic">${CLOSE_ICON}</button>
+          </div>
+          ${inTopic() ? '' : `<div class="notice">This article isn't in the topic. <button class="link add-page">Add it</button></div>`}
+          <div class="topic-actions">
+            <button class="pill primary-pill chat-topic" title="Ask questions across every article in this topic">${CHAT_ICON}Chat</button>
+            <button class="pill go-map" title="See how the articles connect">${MAP_ICON}Map</button>
+          </div>
+        </div>
+        ${state.building ? '' : themesSection(t)}
+      </article>`;
+  }
+
+  // Saved topics other than the open one, as collapsed cards.
+  function savedTopicCards() {
+    return state.savedTopics
+      .filter((t) => t.id !== state.topic?.id)
       .map(
         (t) => `
-        <li class="${t.id === state.topic?.id ? 'here' : ''}">
-          ${t.id === state.topic?.id ? `<strong>${esc(t.name)}</strong> <span class="tag">open</span>` : `<button class="link open-topic" data-id="${t.id}">${esc(t.name)}</button>`}
-          <span class="desc">${t.pages} articles · ${t.facets} themes · from “${esc(t.seed)}”</span>
-          <button class="icon delete-topic" data-id="${t.id}" title="Delete topic" aria-label="Delete ${esc(t.name)}">×</button>
-        </li>`
+        <div class="topic-card saved">
+          <div class="topic-title">${GRAPH_ICON}<div class="grow">
+            <button class="open-topic" data-id="${t.id}" title="Open this topic">${esc(t.name)}</button>
+            <div class="topic-meta">${t.pages} articles · ${t.facets} themes · from “${esc(t.seed)}”</div>
+          </div>
+            <button class="icon delete-topic" data-id="${t.id}" title="Delete topic" aria-label="Delete ${esc(t.name)}">×</button>
+          </div>
+        </div>`
       )
       .join('');
-    return `<section class="block"><h4>Saved topics</h4><ul>${rows}</ul></section>`;
+  }
+
+  function savedTopicsSection() {
+    const cards = savedTopicCards();
+    return cards ? `<section class="block topics"><h4>Saved topics</h4>${cards}</section>` : '';
   }
 
   const BUILDING = 'Generating topic cluster…';
@@ -1513,7 +1543,8 @@
     else if (t.matches('.go-topic')) setView('topic');
     else if (t.matches('.open-settings')) openOptions();
     else if (t.matches('.reload-page')) location.reload();
-    else if (t.matches('.build-topic, .rebuild-topic')) buildTopic();
+    else if (t.matches('.build-topic')) buildTopic();
+    else if (t.matches('.chat-topic')) setScope(true).then(() => setView('chat'));
     else if (t.matches('.scope-article')) setScope(false);
     else if (t.matches('.scope-topic')) setScope(true);
     else if (t.matches('.stop-topic')) state.port?.postMessage({ type: 'stopTopic' });
