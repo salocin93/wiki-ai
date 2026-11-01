@@ -52,8 +52,14 @@
     const checked = messages.some((m) => m.role === 'user' && m.content.startsWith("Parts of your answer aren't backed"));
     const invented = /invent/i.test(question) && (!checked || /stubborn/i.test(question)) ? '\n\nShe later moved to Montevideo in 1799 [1].' : '';
     const answer = `Here is what I found about **${question.trim().slice(0, 60)}**.\n\nThe article covers this in a few places ${ref(0)}${ref(0, 1)}. Linked articles add detail ${ref(2)}${ref(3)}.\n\n- First point [1]\n- Second point ${ref(4)}${ref(2, 1)}${invented}`;
+    // "think" in the question: a long reasoning stream first, to test the Thinking box.
+    const reasoning = /think/i.test(question) ? Array.from({ length: 60 }, (_, i) => `Reasoning line ${i + 1} about the question.`).join('\n') : '';
+    for (let i = 1; i <= 60 && reasoning; i++) {
+      onUpdate?.({ answer: '', reasoning: reasoning.split('\n').slice(0, i).join('\n') });
+      await new Promise((r) => setTimeout(r, 60));
+    }
     for (let i = 1; i <= answer.length; i += 12) {
-      onUpdate?.({ answer: answer.slice(0, i), reasoning: '' });
+      onUpdate?.({ answer: answer.slice(0, i), reasoning });
       await new Promise((r) => setTimeout(r, 15));
     }
     const q = question.trim().replace(/\?$/, '');

@@ -1165,7 +1165,18 @@
       return;
     }
     const scrollTop = messagesEl.scrollTop;
+    // Thinking boxes scroll on their own: keep each one where the reader left it, or at its end while it grows.
+    const thinking = new Map(
+      [...messagesEl.querySelectorAll('.msg[data-i] .reasoning div')].map((d) => [
+        d.closest('.msg').dataset.i,
+        d.scrollHeight - d.scrollTop - d.clientHeight < 8 ? Infinity : d.scrollTop,
+      ])
+    );
     messagesEl.innerHTML = c.messages.map(renderMessage).join('');
+    for (const d of messagesEl.querySelectorAll('.msg[data-i] .reasoning div')) {
+      const top = thinking.get(d.closest('.msg').dataset.i);
+      if (top !== undefined) d.scrollTop = top === Infinity ? d.scrollHeight : top;
+    }
     if (restoreScroll) state.pinQuestion = false;
     messagesEl.scrollTop = restoreScroll ? c.scrollTop ?? messagesEl.scrollHeight : state.pinQuestion ? questionTop() : scrollTop;
   }

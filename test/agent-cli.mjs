@@ -1,5 +1,5 @@
 // Runs the agent outside the browser: node test/agent-cli.mjs "Article title" "question" [model]
-// Reads LITELLM_MASTER_KEY (or LOCAL_LLM_API_KEY) from the environment.
+// Reads LITELLM_MASTER_KEY (or LOCAL_LLM_API_KEY) from the environment. THINKING=1 leaves the model's thinking on.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { pageLinks } from './page-links.mjs';
@@ -20,7 +20,7 @@ const lang = process.env.WIKI_LANG || 'en'; // e.g. WIKI_LANG=de for German Wiki
 
 const links = await pageLinks(lang, title);
 
-const settings = { ...W.settings.DEFAULTS, apiKey: process.env.LOCAL_LLM_API_KEY || process.env.LITELLM_MASTER_KEY, ...(model ? { model } : {}), ...(process.env.ANSWER_LANG ? { answerLanguage: process.env.ANSWER_LANG } : {}) };
+const settings = { ...W.settings.DEFAULTS, apiKey: process.env.LOCAL_LLM_API_KEY || process.env.LITELLM_MASTER_KEY, ...(model ? { model } : {}), ...(process.env.ANSWER_LANG ? { answerLanguage: process.env.ANSWER_LANG } : {}), ...(process.env.THINKING ? { disableThinking: false } : {}) };
 const sources = [];
 const t0 = Date.now();
 const ts = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
