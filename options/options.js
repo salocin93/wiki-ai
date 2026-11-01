@@ -96,9 +96,12 @@ $('providers').addEventListener('click', (e) => {
   const card = e.target.closest('.provider');
   if (!card || card.dataset.id === settings.provider) return;
   apiKeys[settings.provider] = $('apiKey').value.trim();
-  const preset = W.settings.PRESETS[card.dataset.id];
-  settings = { ...settings, provider: card.dataset.id, baseUrl: preset.baseUrl, model: preset.model, fallbackModel: preset.fallbackModel };
-  $('baseUrl').value = preset.baseUrl;
+  // Each provider keeps its own address and models, so switching back restores them.
+  const { baseUrl, model, fallbackModel } = collect();
+  const connections = { ...settings.connections, [settings.provider]: { baseUrl, model, fallbackModel } };
+  const conn = connections[card.dataset.id] || W.settings.PRESETS[card.dataset.id];
+  settings = { ...settings, connections, provider: card.dataset.id, baseUrl: conn.baseUrl, model: conn.model, fallbackModel: conn.fallbackModel };
+  $('baseUrl').value = conn.baseUrl;
   $('apiKey').value = apiKeys[settings.provider] || '';
   models = [];
   renderProviders();
