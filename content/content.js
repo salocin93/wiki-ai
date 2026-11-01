@@ -358,7 +358,9 @@
     html.wikiai-open #siteNotice, html.wikiai-open #centralNotice, html.wikiai-open .cn-banner,
     html.wikiai-open .cn-fundraising, html.wikiai-open [id^="frb"], html.wikiai-open [class*="frb-"],
     html.wikiai-open [id^="WMDE"], html.wikiai-open .wmde-banner { display: none !important; }
-    html.wikiai-open, html.wikiai-open body { overflow: auto !important; }`;
+    html.wikiai-open, html.wikiai-open body { overflow: auto !important; }
+    /* Wide data tables scroll on their own instead of running under the panel. */
+    html.wikiai-open .mw-parser-output table.wikitable { display: block; max-width: 100%; overflow-x: auto; }`;
   document.head.appendChild(pageStyle);
 
   const $ = (sel) => root.querySelector(sel);
@@ -1291,7 +1293,7 @@
       groups.get(s.page).push(s);
     }
     const esc = W.markdown.esc;
-    return `<div class="sources">${[...groups]
+    return `<div class="sources" role="group" aria-label="Sources (arrow keys move between them)">${[...groups]
       .map(([page, items]) => {
         const first = items[0];
         const pageEl = isHere(first)
@@ -1305,7 +1307,7 @@
           .sort((a, b) => labelOf.get(a.n) - labelOf.get(b.n))
           .map((s) => {
             const k = labelOf.get(s.n);
-            return `<button class="source" data-n="${s.n}" data-label="${k}" title="${esc(s.text.slice(0, 200))}" aria-label="Source ${k}: ${esc(page)}, ${esc(label(s))}"><span class="num">${k}</span><span class="where">${esc(label(s))}</span></button>`;
+            return `<button class="source" data-n="${s.n}" data-label="${k}" tabindex="${k === 1 ? 0 : -1}" title="${esc(s.text.slice(0, 200))}" aria-label="Source ${k}: ${esc(page)}, ${esc(label(s))}"><span class="num">${k}</span><span class="where">${esc(label(s))}</span></button>`;
           })
           .join('');
         return `<div class="source-group c${pageColor(page)}"><div class="page-row">${pageEl}</div><div class="chips">${sections}</div></div>`;
@@ -1332,11 +1334,12 @@
       ? `<div class="grounding-note">Underlined parts couldn't be matched to the Wikipedia sources. Hover over them to see why.</div>`
       : '';
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.markdown.esc(m.status || 'Thinking')}</div>` : '';
+    const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
     const error = m.error
-      ? `<div class="error">${W.markdown.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}</div>`
+      ? `<div class="error">${W.markdown.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}${m.model ? '' : debug}</div>`
       : '';
     const sources = cited.length ? renderSourceGroups(cited, labelOf) : '';
-    const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}</div>` : '';
+    const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}${debug}</div>` : '';
     const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
     const followups = !m.pending && m.followups?.length
       ? `<div class="followups"><div class="fu-label">Ask next</div>${m.followups
@@ -1402,6 +1405,9 @@
     return port;
   }
 
+  // What happened while answering, per answer, for "Copy debug info". Kept in memory only, never saved.
+  const traces = new WeakMap();
+
   function onAgentMessage(msg) {
     if (msg.type === 'topicProgress' || msg.type === 'topicBuilt' || msg.type === 'topicError') {
       if (msg.type === 'topicProgress') state.building = BUILDING; // the steps are internal detail
@@ -1438,6 +1444,9 @@
       case 'step':
         m.steps.push(msg.text);
         m.status = msg.text;
+        break;
+      case 'trace':
+        traces.set(m, msg.trace);
         break;
       case 'stream':
         m.content = msg.answer;
@@ -1560,7 +1569,7 @@
       e.preventDefault();
       if (!state.busy) ask(input.value);
     }
-    e.stopPropagation(); // keep Wikipedia's keyboard shortcuts out of the textarea
+    if (e.key !== 'Escape') e.stopPropagation(); // keep Wikipedia's keyboard shortcuts out of the textarea; Escape closes the panel
   });
   input.addEventListener('input', autosize);
 
@@ -1586,6 +1595,11 @@
     if (!t) return;
     if (t.matches('.cite, .source')) onCite(Number(t.dataset.n), t.dataset.label);
     else if (t.matches('.suggestion')) ask(t.textContent);
+    else if (t.matches('.copy-debug')) {
+      navigator.clipboard
+        .writeText(JSON.stringify(traces.get(conv().messages[Number(t.dataset.i)]), null, 2))
+        .then(() => (t.textContent = 'Copied'), () => (t.textContent = "Couldn't copy"));
+    }
     else if (t.matches('.clear-quote')) setQuote(null);
     else if (t.matches('.close-preview')) previewEl.hidden = true;
     else if (t.matches('.show-in-page')) highlightSource(conv().sources[Number(previewEl.dataset.n) - 1]);
@@ -1659,6 +1673,27 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') CSS.highlights?.delete('wikiai-cite');
+  });
+  // An answer's sources are one tab stop; arrow keys move between them.
+  messagesEl.addEventListener('keydown', (e) => {
+    const chip = e.target.closest?.('.source');
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!chip || !step) return;
+    e.preventDefault();
+    const chips = [...chip.closest('.sources').querySelectorAll('.source')].sort((a, b) => a.dataset.label - b.dataset.label);
+    const next = chips[(chips.indexOf(chip) + step + chips.length) % chips.length];
+    chips.forEach((c) => (c.tabIndex = c === next ? 0 : -1));
+    next.focus();
+  });
+
+  // Escape inside the panel closes the source preview first, then the panel (the map handles its own).
+  panel.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.isComposing) return;
+    if (!previewEl.hidden) previewEl.hidden = true;
+    else {
+      setOpen(false);
+      launcher.focus();
+    }
   });
 
   chrome.runtime.onMessage.addListener((msg) => {

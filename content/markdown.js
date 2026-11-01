@@ -22,7 +22,7 @@
         .map((n) => {
           const a = attrs?.(n) || {};
           const label = a.label ?? n;
-          return `<button class="cite ${a.className || ''}" data-n="${n}" data-label="${label}" title="${esc(a.title || `Source ${label}`)}" aria-label="Source ${label}${a.title ? `: ${esc(a.title)}` : ''}">${label}</button>`;
+          return `<button class="cite ${a.className || ''}" data-n="${n}" data-label="${label}" title="${esc(a.title || `Source ${label}`)}" aria-label="Source ${label}${a.title ? `: ${esc(a.title)}` : ''}" tabindex="-1">${label}</button>`; // the source chips under the answer are the keyboard stops
         })
         .join('');
     });

@@ -171,7 +171,7 @@
       .join('');
     box.innerHTML = `
       <div class="map-head">
-        <div class="map-title"><strong>${esc(topic.name)}</strong><span class="map-meta"></span></div>
+        <div class="map-title"><strong>${esc(topic.name)}</strong><span class="map-meta"></span><span class="map-hint">${isOverlay ? 'Hover to see connections · click for details · scroll to zoom · drag to move' : 'Click for details · scroll to zoom · drag to move'}</span></div>
         <div class="legend">${legend}</div>
         ${
           isOverlay
@@ -180,8 +180,7 @@
         }
       </div>
       <svg class="map-svg" role="img" aria-label="Graph of the topic's articles"></svg>
-      <div class="map-card" hidden></div>
-      <div class="map-hint">${isOverlay ? 'Hover to see connections · click for details · scroll to zoom · drag to move' : 'Click for details · scroll to zoom'}</div>`;
+      <div class="map-card" hidden></div>`;
 
     const svg = box.querySelector('svg.map-svg');
     const rect = svg.getBoundingClientRect();
@@ -276,6 +275,18 @@
           ${n.id === currentTitle ? '<span class="tag">You are reading this article</span>' : `<button class="primary open-article">Open article</button>`}
           <button class="ask-article">Ask about it in the chat</button>
         </div>`;
+      if (!isOverlay) keepAboveCard(n);
+    }
+
+    // In the sidebar the card covers the lower part of the map: move the view so the chosen article stays above it.
+    function keepAboveCard(n) {
+      const r = svg.getBoundingClientRect();
+      if (!r.height) return;
+      const covered = (card.getBoundingClientRect().top - r.top) / r.height; // share of the map still visible
+      const bottom = view.y + view.h * Math.max(0.3, covered) - n.r - 24 * (view.w / w); // room for its label
+      if (n.y <= bottom && n.y >= view.y + n.r) return;
+      view.y += n.y - (view.y + view.h * Math.max(0.3, covered) * 0.5);
+      applyView();
     }
 
     // Zoom and pan by changing the viewBox.
@@ -372,6 +383,7 @@
     let drag = null;
     svg.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.node')) return;
+      e.preventDefault(); // dragging moves the map, it doesn't select text
       drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false };
       svg.setPointerCapture(e.pointerId);
     });
@@ -425,6 +437,14 @@
       }
     };
     if (isOverlay) document.addEventListener('keydown', onKey, true);
+    // In the sidebar, Escape closes the article card before it closes the panel.
+    else
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && selected != null) {
+          e.stopPropagation();
+          select(null);
+        }
+      });
 
     box.addEventListener('click', (e) => {
       const t = e.target.closest('button');
