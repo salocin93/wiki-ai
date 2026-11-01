@@ -1067,6 +1067,10 @@
   const PHRASES = {
     en: {
       summary: 'Summarize this article in a few bullet points',
+      summaryOf: (t) => `Summarize “${t}” in a few bullet points`,
+      explain: (x) => `Explain the section “${x}”`,
+      meanings: (t) => `Which meanings of “${t}” are listed here?`,
+      whatIs: (x) => `What is “${x}”?`,
       section: 'Explain the section I am reading',
       readNext: 'Which linked articles should I read next, and why?',
       overview: 'Give me an overview of this topic and its main themes',
@@ -1079,6 +1083,10 @@
     },
     de: {
       summary: 'Fasse diesen Artikel in ein paar Stichpunkten zusammen',
+      summaryOf: (t) => `Fasse „${t}“ in ein paar Stichpunkten zusammen`,
+      explain: (x) => `Erkläre den Abschnitt „${x}“`,
+      meanings: (t) => `Welche Bedeutungen von „${t}“ werden hier aufgeführt?`,
+      whatIs: (x) => `Was ist „${x}“?`,
       section: 'Erkläre den Abschnitt, den ich gerade lese',
       readNext: 'Welche verlinkten Artikel sollte ich als Nächstes lesen, und warum?',
       overview: 'Gib mir einen Überblick über dieses Thema und seine wichtigsten Schwerpunkte',
@@ -1091,6 +1099,10 @@
     },
     fr: {
       summary: 'Résume cet article en quelques points',
+      summaryOf: (t) => `Résume « ${t} » en quelques points`,
+      explain: (x) => `Explique la section « ${x} »`,
+      meanings: (t) => `Quels sens de « ${t} » sont listés ici ?`,
+      whatIs: (x) => `Qu'est-ce que « ${x} » ?`,
       section: 'Explique la section que je lis',
       readNext: 'Quels articles liés devrais-je lire ensuite, et pourquoi ?',
       overview: "Donne-moi une vue d'ensemble de ce sujet et de ses thèmes principaux",
@@ -1103,6 +1115,10 @@
     },
     es: {
       summary: 'Resume este artículo en unos pocos puntos',
+      summaryOf: (t) => `Resume «${t}» en unos pocos puntos`,
+      explain: (x) => `Explica la sección «${x}»`,
+      meanings: (t) => `¿Qué significados de «${t}» aparecen aquí?`,
+      whatIs: (x) => `¿Qué es «${x}»?`,
       section: 'Explica la sección que estoy leyendo',
       readNext: '¿Qué artículos enlazados debería leer a continuación y por qué?',
       overview: 'Dame una visión general de este tema y sus aspectos principales',
@@ -1115,6 +1131,10 @@
     },
     it: {
       summary: 'Riassumi questo articolo in pochi punti',
+      summaryOf: (t) => `Riassumi «${t}» in pochi punti`,
+      explain: (x) => `Spiega la sezione «${x}»`,
+      meanings: (t) => `Quali significati di «${t}» sono elencati qui?`,
+      whatIs: (x) => `Che cos'è «${x}»?`,
       section: 'Spiega la sezione che sto leggendo',
       readNext: 'Quali articoli collegati dovrei leggere dopo, e perché?',
       overview: 'Dammi una panoramica di questo argomento e dei suoi temi principali',
@@ -1142,10 +1162,24 @@
     } catch {}
   }
 
-  const starterSuggestions = () => {
+  // Starter questions about this article, from the page itself (no model call): its name, the section
+  // on screen, its most-mentioned link. Stubs get fewer; a disambiguation page asks which meaning.
+  function starterSuggestions() {
     const p = phrases();
-    return [p.summary, p.section, p.readNext];
-  };
+    const linked = collectLinks().filter((l) => l.count > 0);
+    if (document.querySelector('#disambigbox, .dmbox-disambig') || /\b(disambiguation|begriffsklärung)\b/i.test(document.querySelector('#mw-normal-catlinks')?.textContent || '')) {
+      return [p.meanings(title), ...linked.slice(0, 2).map((l) => p.whatIs(l.title))];
+    }
+    const sections = headings().map(headingText).filter((h) => !BACK_MATTER.test(h));
+    if (!sections.length) return [p.summaryOf(title), p.readNext];
+    const vis = visibleSection().name;
+    const top = [...linked].sort((a, b) => b.count - a.count)[0];
+    return [
+      p.summaryOf(title),
+      vis !== 'Introduction' && !BACK_MATTER.test(vis) ? p.explain(vis) : top ? p.connect(title, top.title) : p.section,
+      p.readNext,
+    ];
+  }
 
   function topicSuggestions(t) {
     const p = phrases();
@@ -1420,6 +1454,10 @@
     if (c === conv()) scheduleRender();
   }
 
+  // An earlier answer as the model sees it again: without the sentences the source check couldn't match,
+  // so details from memory don't come back later looking sourced.
+  const withoutUnsupported = (m) => (m.unsupported || []).reduce((text, u) => text.replace(u.text, ''), m.content).replace(/[ \t]+\n/g, '\n');
+
   function ask(question, c = conv()) {
     question = question.trim();
     if (!question || state.busy) return;
@@ -1433,7 +1471,7 @@
       ...(c.context || []),
       ...c.messages
         .filter(answered)
-        .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : m.content })),
+        .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : withoutUnsupported(m) })),
     ];
     const quote = state.quote;
     c.title ||= question;
