@@ -57,7 +57,9 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "content/sidebar.css"
+        "content/sidebar.css",
+        "icons/mascot.svg",
+        "icons/wordmark.svg"
       ],
       "matches": [
         "https://*.wikipedia.org/*"

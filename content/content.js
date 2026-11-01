@@ -297,6 +297,7 @@
     <button class="ask-selection" hidden>Ask about this</button>
     <aside class="panel" hidden>
       <header>
+        <img class="mark" src="${chrome.runtime.getURL('icons/mascot.svg')}" alt="">
         <div class="titles">
           <img class="name" src="${chrome.runtime.getURL('icons/wordmark.svg')}" alt="Wiki AI">
           <div class="sub"></div>
