@@ -85,6 +85,13 @@ set -a; . ~/.config/local-llm/env; set +a
 node test/agent-cli.mjs "Ada Lovelace" "Who was her mother and what was she known for?" mac/qwen3.5-9b
 ```
 
+It prints each source check (`[grounding]`): details in the answer that aren't in any source the model read, and sentences without a citation.
+
+**Source check on known answers** (no model needed):
+```bash
+node test/grounding-check.mjs
+```
+
 **Topic cluster against the real model** (link signals are approximated from the HTML):
 ```bash
 node test/cluster-cli.mjs "House of Oldenburg" mac/qwen3.5-9b "How is the House of Oldenburg connected to Denmark, Greece and Russia?"

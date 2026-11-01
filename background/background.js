@@ -6,6 +6,7 @@ importScripts(
   '../lib/wiki.js',
   '../lib/llm.js',
   '../lib/links.js',
+  '../lib/grounding.js',
   '../lib/agent.js',
   '../lib/topics.js',
   '../lib/conversations.js',

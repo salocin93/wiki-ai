@@ -4,10 +4,17 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { pageLinks } from './page-links.mjs';
 
-for (const f of ['settings', 'cache', 'bm25', 'wiki', 'llm', 'links', 'agent']) {
+for (const f of ['settings', 'cache', 'bm25', 'wiki', 'llm', 'links', 'grounding', 'agent']) {
   vm.runInThisContext(readFileSync(new URL(`../lib/${f}.js`, import.meta.url), 'utf8'), { filename: `${f}.js` });
 }
 const W = globalThis.WikiAI;
+// Print every source check, including the ones that lead to a retry.
+const check = W.grounding.check;
+W.grounding.check = (...args) => {
+  const flagged = check(...args);
+  console.log(`[grounding] ${flagged.length ? flagged.map((f) => `\n  - ${W.grounding.note(f)}: "${f.text}"`).join('') : 'all supported'}`);
+  return flagged;
+};
 const [title = 'Ada Lovelace', question = 'Who was her mother and what did she do?', model] = process.argv.slice(2);
 const lang = process.env.WIKI_LANG || 'en'; // e.g. WIKI_LANG=de for German Wikipedia
 

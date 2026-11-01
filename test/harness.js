@@ -11,7 +11,7 @@
       s.onerror = reject;
       document.head.appendChild(s);
     });
-  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/agent.js', 'lib/topics.js', 'lib/conversations.js', 'lib/cluster.js', 'content/markdown.js', 'content/map.js']) await load(f);
+  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/grounding.js', 'lib/agent.js', 'lib/topics.js', 'lib/conversations.js', 'lib/cluster.js', 'content/markdown.js', 'content/map.js']) await load(f);
   const W = globalThis.WikiAI;
   const settings = { ...W.settings.DEFAULTS, model: 'fake-model' };
 
@@ -36,7 +36,8 @@
       };
     }
     const toolMsgs = messages.filter((m) => m.role === 'tool');
-    const question = messages.filter((m) => m.role === 'user').pop().content.split('\n---')[0];
+    // The reader's question, not the agent's own nudges ("Answer now…", the source check).
+    const question = messages.filter((m) => m.role === 'user' && !/^(Parts of your answer|Answer now|Don't send me|Write your answer)/.test(m.content)).pop().content.split('\n---')[0];
     const call = (name, args) => ({ content: '', toolCalls: [{ id: 'c' + toolMsgs.length, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
     await new Promise((r) => setTimeout(r, 400));
     if (tools && toolMsgs.length === 0) return call(tools.some((t) => t.function.name === 'search_topic') ? 'search_topic' : 'search_article', { query: question });
@@ -47,7 +48,10 @@
     }
     const nums = (k) => (toolMsgs[k]?.content.match(/^\[(\d+)\]/gm) || []).map((x) => x.slice(1, -1));
     const ref = (k, i = 0) => (nums(k)[i] ? `[${nums(k)[i]}]` : '');
-    const answer = `Here is what I found about **${question.trim().slice(0, 60)}**.\n\nThe article covers this in a few places ${ref(0)}${ref(0, 1)}. Linked articles add detail ${ref(2)}${ref(3)}.\n\n- First point [1]\n- Second point ${ref(4)}${ref(2, 1)}`;
+    // "invent" in the question: a detail from memory, dropped when asked to check (unless also "stubborn").
+    const checked = messages.some((m) => m.role === 'user' && m.content.startsWith("Parts of your answer aren't backed"));
+    const invented = /invent/i.test(question) && (!checked || /stubborn/i.test(question)) ? '\n\nShe later moved to Montevideo in 1799 [1].' : '';
+    const answer = `Here is what I found about **${question.trim().slice(0, 60)}**.\n\nThe article covers this in a few places ${ref(0)}${ref(0, 1)}. Linked articles add detail ${ref(2)}${ref(3)}.\n\n- First point [1]\n- Second point ${ref(4)}${ref(2, 1)}${invented}`;
     for (let i = 1; i <= answer.length; i += 12) {
       onUpdate?.({ answer: answer.slice(0, i), reasoning: '' });
       await new Promise((r) => setTimeout(r, 15));

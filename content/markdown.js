@@ -25,11 +25,18 @@
         })
         .join('');
     });
-    return s;
+    return s.replace(/(\d+)/g, (_, i) => `<span class="unsupported" title="${esc(flagNotes[i] || '')}">`).replace(//g, '</span>');
   }
 
+  let flagNotes = [];
+
   // attrs(n) may return {title, className} for citation n.
-  function render(src, known = () => true, attrs) {
+  // flagged: [{text, note}], sentences to underline as not matched to the sources.
+  function render(src, known = () => true, attrs, flagged = []) {
+    flagNotes = flagged.map((f) => f.note);
+    flagged.forEach((f, i) => {
+      if (!f.text.includes('\n')) src = src.replace(f.text, () => `${i}${f.text}`);
+    });
     const out = [];
     let list = null;
     let para = [];

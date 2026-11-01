@@ -20,6 +20,7 @@
     activeId: null,
     scope: null, // where the tabs are saved: the topic, or this article
     request: null, // the conversation an answer is streaming into
+    pinQuestion: false, // keep the last question at the top, until the reader scrolls
     quote: null, // {text, section}
     port: null,
     links: null,
@@ -1164,10 +1165,16 @@
         </div>`;
       return;
     }
-    const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
     const scrollTop = messagesEl.scrollTop;
     messagesEl.innerHTML = c.messages.map(renderMessage).join('');
-    messagesEl.scrollTop = restoreScroll ? c.scrollTop ?? messagesEl.scrollHeight : atBottom ? messagesEl.scrollHeight : scrollTop;
+    if (restoreScroll) state.pinQuestion = false;
+    messagesEl.scrollTop = restoreScroll ? c.scrollTop ?? messagesEl.scrollHeight : state.pinQuestion ? questionTop() : scrollTop;
+  }
+
+  // A new question goes to the top, and stays there as its answer streams in, so the answer is read from its start.
+  function questionTop() {
+    const q = [...messagesEl.querySelectorAll('.msg.user')].pop();
+    return q ? q.getBoundingClientRect().top - messagesEl.getBoundingClientRect().top + messagesEl.scrollTop - 8 : messagesEl.scrollTop;
   }
 
   const known = (n) => n >= 1 && n <= (conv()?.sources.length || 0);
@@ -1225,7 +1232,11 @@
       ? `<details class="steps"${m.stepsOpen ?? m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${W.markdown.esc(s)}</li>`).join('')}</ul></details>`
       : '';
     const reasoning = m.reasoning ? `<details class="reasoning"${m.reasoningOpen ? ' open' : ''}><summary>Thinking</summary><div>${W.markdown.esc(m.reasoning)}</div></details>` : '';
-    const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, citeAttrs)}</div>` : '';
+    const flagged = m.pending ? [] : m.unsupported || [];
+    const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, citeAttrs, flagged)}</div>` : '';
+    const grounding = flagged.length
+      ? `<div class="grounding-note">Underlined parts couldn't be matched to the Wikipedia sources. Hover over them to see why.</div>`
+      : '';
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.markdown.esc(m.status || 'Thinking')}</div>` : '';
     const error = m.error
       ? `<div class="error">${W.markdown.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}</div>`
@@ -1244,7 +1255,7 @@
           )
           .join('')}</div>`
       : '';
-    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${status}${error}${sources}${meta}${followups}</div>`;
+    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${grounding}${status}${error}${sources}${meta}${followups}</div>`;
   }
 
   // Re-render at most every 40 ms while tokens stream in (a timer, so it also runs in background tabs).
@@ -1346,6 +1357,7 @@
         if (msg.answer) m.content = msg.answer;
         if (msg.model) m.model = msg.model;
         if (msg.followups?.length) m.followups = msg.followups;
+        m.unsupported = msg.unsupported?.length ? msg.unsupported : undefined;
         if (msg.stopped && !m.content) m.error = 'Stopped.';
         finish();
         break;
@@ -1382,8 +1394,8 @@
     autosize();
     setBusy(true);
     renderChatBar();
+    state.pinQuestion = true;
     render();
-    messagesEl.scrollTop = messagesEl.scrollHeight; // show the new question even if the chat was scrolled up
     connect().postMessage({
       type: 'ask',
       question,
@@ -1450,6 +1462,10 @@
     e.stopPropagation(); // keep Wikipedia's keyboard shortcuts out of the textarea
   });
   input.addEventListener('input', autosize);
+
+  // Scrolling by hand during an answer lets the reader go where they like.
+  for (const type of ['wheel', 'touchmove', 'keydown']) messagesEl.addEventListener(type, () => (state.pinQuestion = false), { passive: true });
+  messagesEl.addEventListener('mousedown', (e) => e.target === messagesEl && (state.pinQuestion = false)); // the scrollbar
 
   // Remember opened/closed step and thinking lists, so streaming re-renders don't snap them shut.
   messagesEl.addEventListener(
