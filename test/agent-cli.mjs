@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { pageLinks } from './page-links.mjs';
 
-for (const f of ['settings', 'cache', 'bm25', 'wiki', 'llm', 'links', 'grounding', 'agent']) {
+for (const f of ['settings', 'cache', 'bm25', 'tables', 'wiki', 'llm', 'links', 'grounding', 'agent']) {
   vm.runInThisContext(readFileSync(new URL(`../lib/${f}.js`, import.meta.url), 'utf8'), { filename: `${f}.js` });
 }
 const W = globalThis.WikiAI;

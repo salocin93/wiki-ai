@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-for (const f of ['settings', 'cache', 'bm25', 'wiki', 'llm', 'links', 'agent', 'topics', 'cluster']) {
+for (const f of ['settings', 'cache', 'bm25', 'tables', 'wiki', 'llm', 'links', 'agent', 'topics', 'cluster']) {
   vm.runInThisContext(readFileSync(new URL(`../lib/${f}.js`, import.meta.url), 'utf8'), { filename: `${f}.js` });
 }
 const W = globalThis.WikiAI;
@@ -14,7 +14,7 @@ const lang = 'en';
 
 import { pageLinks } from './page-links.mjs';
 
-const settings = { ...W.settings.DEFAULTS, ...(process.env.LLM_BASE_URL ? { baseUrl: process.env.LLM_BASE_URL, fallbackModel: "" } : {}), apiKey: process.env.LLM_API_KEY, ...(model ? { model } : {}) };
+const settings = { ...W.settings.DEFAULTS, ...(process.env.LLM_BASE_URL ? { baseUrl: process.env.LLM_BASE_URL, fallbackModel: "" } : {}), apiKey: process.env.LLM_API_KEY, ...(model ? { model } : {}), ...(process.env.ANSWER_LANG ? { answerLanguage: process.env.ANSWER_LANG } : {}) };
 const t0 = Date.now();
 const ts = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 const links = await pageLinks(lang, title);

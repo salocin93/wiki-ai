@@ -1414,10 +1414,15 @@
     question = question.trim();
     if (!question || state.busy) return;
     if (!ensureAlive()) return;
+    // A question that was stopped or failed leaves the history with its reply, so the model doesn't answer it later.
+    const answered = (m, i) => {
+      const reply = m.role === 'user' ? c.messages[i + 1] : m;
+      return !!reply && reply.role === 'assistant' && !reply.error && !!reply.content && !!m.content;
+    };
     const history = [
       ...(c.context || []),
       ...c.messages
-        .filter((m) => !m.error && m.content)
+        .filter(answered)
         .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : m.content })),
     ];
     const quote = state.quote;

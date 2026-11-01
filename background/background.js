@@ -3,6 +3,7 @@ importScripts(
   '../lib/settings.js',
   '../lib/cache.js',
   '../lib/bm25.js',
+  '../lib/tables.js',
   '../lib/wiki.js',
   '../lib/llm.js',
   '../lib/links.js',

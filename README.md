@@ -34,7 +34,8 @@ content/content.js   sidebar (shadow DOM), link + context extraction from the pa
                      citation highlighting (CSS Custom Highlight API), selection button
 background/          service worker: runs the agent per question over a runtime port
 lib/wiki.js          Wikipedia API: plain-text article split into sections → ~160-word chunks,
-                     REST summaries; cached 24 h in IndexedDB
+                     plus its tables and infobox; REST summaries; cached 24 h in IndexedDB
+lib/tables.js        tables and infoboxes from the article HTML as text rows (the extract drops them)
 lib/bm25.js          keyword search over chunks and over links (no embedding model needed)
 lib/agent.js         tool-calling loop, prompt budget, numbered sources
 lib/llm.js           streaming OpenAI-compatible client (tool calls, <think> handling, 503 fallback)
@@ -103,6 +104,11 @@ It prints each source check (`[grounding]`): numbers and names in the answer tha
 **Source check on known answers** (no model needed):
 ```bash
 node test/grounding-check.mjs
+```
+
+**Tables and infoboxes read from article HTML** (no model needed):
+```bash
+node test/tables-check.mjs
 ```
 
 **Topic cluster against the real model** (link signals are approximated from the HTML):
