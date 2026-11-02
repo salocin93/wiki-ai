@@ -31,6 +31,27 @@
 
   let flagNotes = [];
 
+  // Formulas: $$…$$ and \[…\] on their own, $…$ and \(…\) inline. An inline $ pair needs no space just inside
+  // it and no digit right after, so prices ("$5 and $10") stay text. Each becomes a placeholder until the end.
+  const MATH = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?!\d)/g;
+
+  function takeMath(src) {
+    const formulas = [];
+    const text = src.replace(MATH, (whole, block, block2, inl, inl2) => {
+      const tex = block ?? block2 ?? inl ?? inl2;
+      const display = block != null || block2 != null;
+      let html;
+      try {
+        html = g.katex.renderToString(tex.trim(), { displayMode: display, throwOnError: false, strict: 'ignore', errorColor: 'inherit' });
+      } catch {
+        html = esc(whole);
+      }
+      formulas.push(html);
+      return `\uE010${formulas.length - 1}\uE011`;
+    });
+    return { text, put: (html) => html.replace(/\uE010(\d+)\uE011/g, (_, k) => formulas[k]) };
+  }
+
   // attrs(n) may return {title, className, label} for citation n; label is the number shown (default n).
   // flagged: [{text, note}], sentences to underline as not matched to the sources.
   function render(src, known = () => true, attrs, flagged = []) {
@@ -38,6 +59,8 @@
     flagged.forEach((f, i) => {
       if (!f.text.includes('\n')) src = src.replace(f.text, () => `${i}${f.text}`);
     });
+    const math = g.katex ? takeMath(src) : null;
+    if (math) src = math.text;
     const out = [];
     let list = null;
     let para = [];
@@ -75,7 +98,7 @@
     }
     flushPara();
     flushList();
-    return out.join('');
+    return math ? math.put(out.join('')) : out.join('');
   }
 
   function citedNumbers(src) {

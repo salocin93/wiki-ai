@@ -290,6 +290,7 @@
   host.id = 'wikiai-host';
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `
+    <link rel="stylesheet" href="${chrome.runtime.getURL('vendor/katex/katex.min.css')}">
     <link rel="stylesheet" href="${chrome.runtime.getURL('content/sidebar.css')}">
     <button class="launcher" title="Ask about this article (Alt+Shift+W)" aria-label="Open Wiki AI">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
@@ -362,6 +363,12 @@
     /* Wide data tables scroll on their own instead of running under the panel. */
     html.wikiai-open .mw-parser-output table.wikitable { display: block; max-width: 100%; overflow-x: auto; }`;
   document.head.appendChild(pageStyle);
+  // KaTeX's fonts: Chrome ignores @font-face inside a shadow root, so the page loads them too (its rules only
+  // touch .katex elements, which Wikipedia doesn't use).
+  const katexFonts = document.createElement('link');
+  katexFonts.rel = 'stylesheet';
+  katexFonts.href = chrome.runtime.getURL('vendor/katex/katex.min.css');
+  document.head.appendChild(katexFonts);
 
   const $ = (sel) => root.querySelector(sel);
   const panel = $('.panel');
