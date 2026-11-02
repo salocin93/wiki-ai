@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-for (const f of ['settings', 'cache', 'bm25', 'tables', 'wiki', 'llm', 'links', 'agent', 'topics', 'cluster']) {
+for (const f of ['settings', 'cache', 'bm25', 'tables', 'wiki', 'llm', 'links', 'grounding', 'agent', 'topics', 'cluster']) {
   vm.runInThisContext(readFileSync(new URL(`../lib/${f}.js`, import.meta.url), 'utf8'), { filename: `${f}.js` });
 }
 const W = globalThis.WikiAI;

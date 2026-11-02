@@ -250,14 +250,43 @@
     return range;
   }
 
+  // A cited table passage ("Table: …", then "76 | Os | Osmium | …" rows) or infobox passage ("Born: …" lines):
+  // the range from its first to its last row on the page, found by the rows' leading values or labels.
+  function locateRows(sourceText) {
+    const [head, ...lines] = sourceText.split('\n').filter((l) => !l.startsWith('Columns: '));
+    const n = (t) => t.replace(/\s+/g, ' ').trim().toLowerCase();
+    const cellText = (c) => n(c.textContent.replace(/\[[^\]]{1,4}\]/g, '')); // without "[12]" footnote marks
+    let rows = [];
+    if (head.startsWith('Infobox')) {
+      const labels = new Set(lines.map((l) => n(l.split(': ')[0])));
+      rows = [...article.querySelectorAll('.infobox tr')].filter((tr) => {
+        const th = tr.querySelector('th');
+        return th && labels.has(cellText(th));
+      });
+    } else if (head.startsWith('Table')) {
+      const wanted = lines.map((l) => l.split(' | ').map(n).filter(Boolean).slice(0, 3)).filter((v) => v.length > 1);
+      const trs = [...article.querySelectorAll('table.wikitable tr')];
+      rows = trs.filter((tr) => {
+        const cells = [...tr.children].map(cellText);
+        return wanted.some((v) => cells[0] === v[0] && v.slice(1).every((x) => cells.some((c) => c.includes(x))));
+      });
+    }
+    if (!rows.length) return null;
+    const range = document.createRange();
+    range.setStartBefore(rows[0]);
+    range.setEndAfter(rows[rows.length - 1]);
+    return range;
+  }
+
   function highlightSource(src) {
     let range = null;
     try {
-      range = locate(src.text);
+      range = /^(Table|Infobox)\b/.test(src.text) ? locateRows(src.text) : locate(src.text);
     } catch {}
     if (range) {
       if (globalThis.CSS?.highlights && globalThis.Highlight) CSS.highlights.set('wikiai-cite', new Highlight(range));
-      const el = range.startContainer.parentElement;
+      const start = range.startContainer;
+      const el = start.nodeType === Node.ELEMENT_NODE ? start.childNodes[range.startOffset] || start : start.parentElement; // a table row, or text
       openCollapsedAncestors(el);
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return true;
