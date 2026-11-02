@@ -252,8 +252,18 @@
 
   // A cited table passage ("Table: …", then "76 | Os | Osmium | …" rows) or infobox passage ("Born: …" lines):
   // the range from its first to its last row on the page, found by the rows' leading values or labels.
+  // An image passage: its picture with the caption, found by the file name.
   function locateRows(sourceText) {
     const [head, ...lines] = sourceText.split('\n').filter((l) => !l.startsWith('Columns: '));
+    if (head.startsWith('Figure')) {
+      const file = lines.find((l) => l.startsWith('File: '))?.slice(6).replace(/ /g, '_');
+      const link = file && [...article.querySelectorAll('a.mw-file-description')].find((a) => decodeURIComponent(a.getAttribute('href') || '').endsWith(`:${file}`));
+      const box = link?.closest('figure, .gallerybox, td') || link;
+      if (!box) return null;
+      const range = document.createRange();
+      range.selectNode(box);
+      return range;
+    }
     const n = (t) => t.replace(/\s+/g, ' ').trim().toLowerCase();
     const cellText = (c) => n(c.textContent.replace(/\[[^\]]{1,4}\]/g, '')); // without "[12]" footnote marks
     let rows = [];
@@ -281,7 +291,7 @@
   function highlightSource(src) {
     let range = null;
     try {
-      range = /^(Table|Infobox)\b/.test(src.text) ? locateRows(src.text) : locate(src.text);
+      range = /^(Table|Infobox|Figure)\b/.test(src.text) ? locateRows(src.text) : locate(src.text);
     } catch {}
     if (range) {
       if (globalThis.CSS?.highlights && globalThis.Highlight) CSS.highlights.set('wikiai-cite', new Highlight(range));
@@ -1379,6 +1389,7 @@
       ? `<div class="error">${W.markdown.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}${m.model ? '' : debug}</div>`
       : '';
     const sources = cited.length ? renderSourceGroups(cited, labelOf) : '';
+    const figures = cited.length ? renderFigures(cited, labelOf) : '';
     const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}${debug}</div>` : '';
     const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
     const followups = !m.pending && m.followups?.length
@@ -1391,7 +1402,24 @@
           )
           .join('')}</div>`
       : '';
-    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${grounding}${status}${error}${sources}${meta}${followups}</div>`;
+    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${figures}${grounding}${status}${error}${sources}${meta}${followups}</div>`;
+  }
+
+  // Images the answer cites, with their caption and credit (Commons licences ask for the author and licence).
+  function renderFigures(numbers, labelOf) {
+    const esc = W.markdown.esc;
+    const figs = numbers.map((n) => conv().sources[n - 1]).filter((s) => s?.figure?.thumb).slice(0, 3);
+    if (!figs.length) return '';
+    return `<div class="answer-figures">${figs
+      .map((s) => {
+        const f = s.figure;
+        const credit = [f.artist, f.license].filter(Boolean).join(' · ');
+        return `<figure class="answer-figure">
+          <button class="figure-img" data-n="${s.n}" data-label="${labelOf.get(s.n)}" title="${isHere(s) ? 'Show in the article' : `From “${esc(s.page)}”`}"><img src="${esc(f.thumb)}" alt="${esc(f.caption || f.description || f.file)}" loading="lazy"></button>
+          <figcaption><span class="num">${labelOf.get(s.n)}</span> ${esc(truncate(f.caption || f.description || f.file, 160))}${credit ? ` <a class="credit" href="${esc(f.url || '')}" target="_blank" rel="noopener">${esc(credit)}</a>` : ''}</figcaption>
+        </figure>`;
+      })
+      .join('')}</div>`;
   }
 
   // Re-render at most every 40 ms while tokens stream in (a timer, so it also runs in background tabs).
@@ -1566,6 +1594,7 @@
         </span>
         <button class="icon close-preview" aria-label="Close preview">×</button>
       </div>
+      ${src.figure?.thumb ? `<img class="preview-img" src="${W.markdown.esc(src.figure.thumb)}" alt="">` : ''}
       <div class="preview-text">${W.markdown.esc(src.text)}</div>
       <div class="preview-actions">
         ${isHere(src) ? '<button class="link show-in-page">Show in article</button>' : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener">Open “${W.markdown.esc(src.page)}” ↗</a>`}
@@ -1634,7 +1663,7 @@
   root.addEventListener('click', (e) => {
     const t = e.target.closest('button, a');
     if (!t) return;
-    if (t.matches('.cite, .source')) onCite(Number(t.dataset.n), t.dataset.label);
+    if (t.matches('.cite, .source, .figure-img')) onCite(Number(t.dataset.n), t.dataset.label);
     else if (t.matches('.suggestion')) ask(t.textContent);
     else if (t.matches('.copy-debug')) {
       navigator.clipboard

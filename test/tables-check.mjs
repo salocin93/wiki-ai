@@ -1,4 +1,4 @@
-// Checks lib/tables.js on hand-written article HTML: node test/tables-check.mjs
+// Checks lib/tables.js (tables, infoboxes, figures) on hand-written article HTML: node test/tables-check.mjs
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
@@ -51,4 +51,19 @@ assert.equal(discoveries.caption, 'Discoveries');
 assert.equal(discoveries.columns, '', 'no header row, no column names');
 assert.deepEqual(discoveries.lines, ['1803 | Osmium']);
 
-console.log('tables: all checks passed');
+// Images: a thumbnail with its caption, the infobox image, a gallery picture; icons and repeats are left out.
+const figs = T.figures(`
+<table class="infobox"><tr><td class="infobox-image"><span typeof="mw:File"><a href="/wiki/File:Ada_portrait.png" class="mw-file-description"><img src="x" width="250" height="300"></a></span><div class="infobox-caption">Ada in 1843</div></td></tr>
+<tr><td><span typeof="mw:File"><a href="/wiki/File:Flag.svg" class="mw-file-description"><img src="x" width="23" height="15"></a></span> England</td></tr></table>
+<div class="mw-heading mw-heading2"><h2 id="Proof">Sketch of proof</h2></div>
+<figure typeof="mw:File/Thumb"><a href="/wiki/File:FTC_geometric.svg" class="mw-file-description"><img src="x" width="500" height="289"></a><figcaption>The area shaded in red stripes is close to <i>h</i> times <i>f</i>(<i>x</i>).<sup class="reference">[1]</sup></figcaption></figure>
+<ul class="gallery"><li class="gallerybox"><div class="thumb"><span typeof="mw:File"><a href="/wiki/File:Riemann%27s_sum.gif" class="mw-file-description"><img alt="Alt text" src="x" width="120" height="90"></a></span></div><div class="gallerytext">Riemann sums</div></li></ul>
+<figure typeof="mw:File/Thumb"><a href="/wiki/File:FTC_geometric.svg" class="mw-file-description"><img src="x" width="300" height="180"></a><figcaption>Again</figcaption></figure>
+`);
+assert.deepEqual(figs, [
+  { path: 'Introduction', file: 'Ada portrait.png', caption: 'Ada in 1843' },
+  { path: 'Sketch of proof', file: 'FTC geometric.svg', caption: 'The area shaded in red stripes is close to h times f(x).' },
+  { path: 'Sketch of proof', file: "Riemann's sum.gif", caption: 'Riemann sums' },
+]);
+
+console.log('tables and figures: all checks passed');
