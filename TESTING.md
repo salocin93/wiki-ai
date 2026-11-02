@@ -15,7 +15,7 @@ Keep the `wiki-ai` folder where it is; Chrome loads the extension from it.
 
 ## Try it
 
-- Open any Wikipedia article and click the round chat button (bottom right), or press **Alt+Shift+W**.
+- Open any Wikipedia article: the chat panel opens on the right. If you closed it, click the round chat button (bottom right) or press **Alt+Shift+W**.
 - **Chat**: ask a question. Numbers like `[3]` are sources; click one to jump to the passage. Suggested follow-up questions appear under each answer.
 - Select text in the article and click **Ask about this**.
 - **Topic**: **Build topic cluster** groups the article's most relevant links into themes. Answers then search all of them.

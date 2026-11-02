@@ -647,7 +647,7 @@
     if (state.view !== 'topic') return;
     const t = state.topic;
     const parts = [];
-    if (state.topicError) parts.push(`<div class="topic-error">${esc(state.topicError)}</div>`);
+    if (state.topicError) parts.push(`<div class="${state.topicNote ? 'topic-note' : 'topic-error'}">${esc(state.topicError)}</div>`);
     if (!t && !state.building) {
       parts.push(`
         <div class="topic-head empty">
@@ -780,6 +780,7 @@
   function buildTopic() {
     if (!ensureAlive()) return;
     if (isDisambiguation()) {
+      state.topicNote = true; // guidance, not a failure
       state.topicError = `“${title}” is a disambiguation page: it lists different meanings, so there's no single subject to build a topic around. Open the meaning you want and build the topic there.`;
       if (state.view !== 'topic') setView('topic');
       else renderTopic();
@@ -787,6 +788,7 @@
     }
     state.building = BUILDING;
     state.topicError = null;
+    state.topicNote = false;
     renderTopic();
     renderScopeBar();
     connect().postMessage({ type: 'buildTopic', page: pageInfo() });
@@ -794,10 +796,12 @@
 
   async function topicAction(fn) {
     state.topicError = null;
+    state.topicNote = false;
     try {
       await fn();
     } catch (e) {
       state.topicError = e.message;
+      state.topicNote = false;
     }
     await refreshTopic();
   }
@@ -1456,6 +1460,7 @@
       if (msg.type === 'topicError') {
         state.building = null;
         state.topicError = msg.message;
+        state.topicNote = false;
       }
       renderTopic();
       renderScopeBar();
@@ -1744,7 +1749,8 @@
 
   render();
   refreshTopic();
-  // Reopen the panel after following a link in this tab, or in a new tab opened from a tab where it was open.
+  // The panel opens on every article, in its last section; closing it keeps it closed in this tab
+  // until it's opened again.
   const restore = (view) => {
     if (view === 'topic' || view === 'map') setView(view);
     setOpen(true, { focus: false });
@@ -1757,7 +1763,7 @@
       refreshTopic(); // load that chat's scope; the chat opens once it's loaded
     }
     if (h && sessionOpen !== '0') restore(h.view);
-    else if (sessionOpen === '1') restore(recall('view'));
+    else if (sessionOpen !== '0') restore(recall('view'));
   });
 
   for (const type of ['pointerdown', 'contextmenu']) {

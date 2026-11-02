@@ -25,7 +25,7 @@ A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia ar
 - **Suggested next questions.** Every answer ends with three follow-up questions. Clicking one continues the same chat; asked ones get a ✓. Suggestions you haven't asked yet, from all your chats, collect under **Topic › Questions to explore**, and asking one there continues the chat it came from.
 - **Falls back automatically.** If the main model is unavailable or rate-limited, it retries on the fallback model set in the settings.
 
-Toggle the sidebar with the round button (bottom right), the toolbar icon, or **Alt+Shift+W**.
+The sidebar opens on every Wikipedia article. Close it with × (it stays closed in that tab) and reopen it with the round button (bottom right), the toolbar icon, or **Alt+Shift+W**.
 
 ## How it works
 
