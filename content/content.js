@@ -784,12 +784,19 @@ import { topicMap } from './map.js';
     const q = state.historyFilter.trim().toLowerCase();
     // Matches the title or anything said in the chat.
     const match = (c) => !q || [c.title, c.text ?? c.messages?.map((m) => m.content || '').join('\n')].some((t) => (t || '').toLowerCase().includes(q));
-    const row = ({ scope, id, title: t, questions, updatedAt, here, running }) => `
-      <li class="${here ? 'here' : ''}">
-        <button class="link ${scope ? 'open-saved-chat' : 'open-chat'}" data-id="${id}" ${scope ? `data-scope="${esc(scope)}"` : ''}>${esc(truncate(t || 'Chat', 70))}</button>
-        <span class="desc">${questions} question${questions === 1 ? '' : 's'} · ${ago(updatedAt)}${running ? ' · answering…' : ''}</span>
-        <button class="icon ${scope ? 'delete-saved-chat' : 'delete-chat'}" data-id="${id}" ${scope ? `data-scope="${esc(scope)}"` : ''} title="Delete chat" aria-label="Delete chat">×</button>
+    // One row per chat: the whole row opens it (title up to two lines, then how long and how recent), × deletes it.
+    const row = ({ scope, id, title: t, questions, updatedAt, here, running }) => {
+      const data = `data-id="${id}" ${scope ? `data-scope="${esc(scope)}"` : ''}`;
+      const name = t || 'Chat';
+      return `
+      <li class="history-item${here ? ' here' : ''}">
+        <button class="history-open ${scope ? 'open-saved-chat' : 'open-chat'}" ${data} title="${esc(name)}"${here ? ' aria-current="true"' : ''}>
+          <span class="history-title">${esc(name)}</span>
+          <span class="history-meta">${questions} question${questions === 1 ? '' : 's'} · ${ago(updatedAt)}${running ? ' · answering…' : ''}</span>
+        </button>
+        <button class="icon ${scope ? 'delete-saved-chat' : 'delete-chat'}" ${data} title="Delete chat" aria-label="Delete chat “${esc(truncate(name, 60))}”">×</button>
       </li>`;
+    };
 
     const here = state.convs
       .filter((c) => c.messages.length && match(c))
