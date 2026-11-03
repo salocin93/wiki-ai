@@ -1,6 +1,6 @@
 # Wiki AI: final review report
 
-**As of 2026-11-03 15:47 CET.** Describes `main` at commit `5b26787` (2026-11-03 15:43 CET, after PR #7), plus the topic fixes on branch `topic-prompt-fixes` that go into main with this report.
+**As of 2026-11-03 15:47 CET.** Describes `main` at commit `5b26787` (2026-11-03 15:43 CET, after PR #7), plus [PR #8](https://github.com/salocin93/wiki-ai/pull/8), which brings this report and two topic fixes.
 
 This closes the pre-publication review of commit `db7f2d6` (2026-11-02 02:22 CET, version 0.3.0), which was written on 2026-11-03, 02:57–03:37 CET. The review documents in this folder are a snapshot of that commit: [CODE_REVIEW.md](CODE_REVIEW.md), [SECURITY.md](SECURITY.md), [STORE_READINESS.md](STORE_READINESS.md), [ACTION_PLAN.md](ACTION_PLAN.md) and [ARCHITECTURE.md](ARCHITECTURE.md). This report gives the current status of each item and the pull request that fixed it.
 
@@ -28,7 +28,7 @@ All times CET (UTC+1). Merge times are from GitHub.
 | 2026-11-03 14:27 | [PR #5](https://github.com/salocin93/wiki-ai/pull/5) merged | ES modules and an esbuild build (not a review item) |
 | 2026-11-03 15:27 | [PR #6](https://github.com/salocin93/wiki-ai/pull/6) merged | Four bugs found while testing |
 | 2026-11-03 15:43 | [PR #7](https://github.com/salocin93/wiki-ai/pull/7) merged | Citation check reworked: fix or leave out unbacked claims instead of underlining them |
-| Pending | Branch `topic-prompt-fixes` | Topic panel wording and the missing "Build a topic cluster" link; this documentation cleanup |
+| 2026-11-03 | [PR #8](https://github.com/salocin93/wiki-ai/pull/8) opened | Topic panel wording and the missing "Build a topic cluster" link; this documentation cleanup |
 
 ## Action plan items
 
@@ -123,7 +123,7 @@ Found while testing the extension, not by the review.
 |---|---|
 | PR #6 | Closing the active topic didn't work on its own articles. The Map view's saved-topic list didn't scroll. The note under flagged answers was misleading. An article answer showed under the Topic tab after a topic finished building |
 | PR #7 | A sentence was marked "not supported" while showing a source number, and the word check flagged correct sentences. Now an unbacked claim is sent back to the model once, then left out, with a collapsed note listing what was left out. With the model check on, the model decides for every cited sentence. No more underlines or per-answer switch |
-| Branch `topic-prompt-fixes` | The Topic view said "Questions now use …" before a topic was built. The chat offered no way to build a topic while a topic from another article was open |
+| PR #8 | The Topic view said "Questions now use …" before a topic was built. The chat offered no way to build a topic while a topic from another article was open |
 
 ## Still to do
 
