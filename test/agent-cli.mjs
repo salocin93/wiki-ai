@@ -1,18 +1,15 @@
 // Runs the agent outside the browser: node test/agent-cli.mjs "Article title" "question" [model]
 // Reads LLM_API_KEY, and optionally LLM_BASE_URL (default: Gemini), from the environment. THINKING=1 leaves the model's thinking on.
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { agent } from '../lib/agent.js';
+import { appSettings } from '../lib/settings.js';
+import { grounding } from '../lib/grounding.js';
 import { pageLinks } from './page-links.mjs';
 
-for (const f of ['settings', 'text', 'storage', 'sections', 'cache', 'bm25', 'tables', 'wiki', 'llm', 'links', 'grounding', 'prompt', 'agent']) {
-  vm.runInThisContext(readFileSync(new URL(`../lib/${f}.js`, import.meta.url), 'utf8'), { filename: `${f}.js` });
-}
-const W = globalThis.WikiAI;
 // Print every source check, including the ones that lead to a retry.
-const check = W.grounding.check;
-W.grounding.check = (...args) => {
+const check = grounding.check;
+grounding.check = (...args) => {
   const flagged = check(...args);
-  console.log(`[grounding] ${flagged.length ? flagged.map((f) => `\n  - ${W.grounding.note(f)}: "${f.text}"`).join('') : 'all supported'}`);
+  console.log(`[grounding] ${flagged.length ? flagged.map((f) => `\n  - ${grounding.note(f)}: "${f.text}"`).join('') : 'all supported'}`);
   return flagged;
 };
 const [title = 'Ada Lovelace', question = 'Who was her mother and what did she do?', model] = process.argv.slice(2);
@@ -20,11 +17,11 @@ const lang = process.env.WIKI_LANG || 'en'; // e.g. WIKI_LANG=de for German Wiki
 
 const links = await pageLinks(lang, title);
 
-const settings = { ...W.settings.DEFAULTS, ...(process.env.LLM_BASE_URL ? { baseUrl: process.env.LLM_BASE_URL, fallbackModel: "" } : {}), apiKey: process.env.LLM_API_KEY, ...(model ? { model } : {}), ...(process.env.ANSWER_LANG ? { answerLanguage: process.env.ANSWER_LANG } : {}), ...(process.env.THINKING ? { disableThinking: false } : {}) };
+const settings = { ...appSettings.DEFAULTS, ...(process.env.LLM_BASE_URL ? { baseUrl: process.env.LLM_BASE_URL, fallbackModel: "" } : {}), apiKey: process.env.LLM_API_KEY, ...(model ? { model } : {}), ...(process.env.ANSWER_LANG ? { answerLanguage: process.env.ANSWER_LANG } : {}), ...(process.env.THINKING ? { disableThinking: false } : {}) };
 const sources = [];
 const t0 = Date.now();
 const ts = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
-const answer = await W.agent.run({
+const answer = await agent.run({
   settings,
   page: { lang, title, links, visibleSection: 'Introduction', selection: null },
   question,

@@ -1,12 +1,12 @@
 # Wiki AI: architecture
 
-Snapshot of commit `db7f2d6` (version 0.3.0), written for the pre-publication review. Plain JavaScript, no build step, no package manager. Line numbers refer to that commit; since then page reading and highlighting moved to `content/page.js`, the phrase tables to `content/phrases.js`, the system prompt to `lib/prompt.js` and shared helpers to `lib/text.js` (see `ACTION_PLAN.md`).
+Snapshot of commit `db7f2d6` (version 0.3.0), written for the pre-publication review. Line numbers refer to that commit. Since then the files became ES modules bundled by esbuild (the two Platform points below are current), and page reading and highlighting moved to `content/page.js`, the phrase tables to `content/phrases.js`, the system prompt to `lib/prompt.js` and shared helpers to `lib/text.js` (see `ACTION_PLAN.md`).
 
 ## Platform
 
 - **Manifest V3**, confirmed: `manifest.json:2` (`"manifest_version": 3`), background is a `service_worker` (`manifest.json:24-26`).
-- No bundler, no transpiler, no `package.json`. Files are loaded as-is: the service worker uses `importScripts` (`background/background.js:2-15`), the content script is a list of files in the manifest (`manifest.json:44-56`), the options page uses `<script>` tags (`options/options.html:108-113`).
-- Each `lib/*.js` file is an IIFE that adds a namespace to `globalThis.WikiAI` (`W.settings`, `W.llm`, `W.agent`…). The same files run in the service worker, the options page, and Node (tests load them with `vm.runInThisContext`).
+- Plain JavaScript ES modules, bundled by esbuild (`scripts/build.mjs`) into `dist/wiki-ai/`: one classic script each for the service worker, the content script and the options page, not minified, with inline source maps in development builds. `npm run watch` rebuilds on save; `scripts/package.sh` zips a release build.
+- Each `lib/*.js` and `content/*.js` file exports one object and imports what it uses. Seven are imported under names that can't be mistaken for a local variable: `appSettings` (settings.js), `textUtil` (text.js), `linkRank` (links.js), `sectionNames` (sections.js), `htmlTables` (tables.js), `pageDom` (page.js), `phraseBook` (phrases.js). The same modules run in the service worker, the options page, the content script and Node (tests import them directly).
 - The only third-party code is vendored KaTeX 0.19.0 (`vendor/katex/`, MIT, ~270 KB JS + ~300 KB fonts).
 
 ## Entry points

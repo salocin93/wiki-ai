@@ -1,8 +1,11 @@
 {
   "name": "wiki-ai",
   "private": true,
+  "type": "module",
   "description": "Chrome extension: chat with an AI model about the Wikipedia article you're reading.",
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
     "lint": "eslint .",
     "typecheck": "tsc -p .",
     "test": "node --test test/unit.test.mjs test/grounding-check.mjs test/tables-check.mjs",
@@ -13,6 +16,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "eslint": "^10.14.0",
     "typescript": "^7.0.2"
   }

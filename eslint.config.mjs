@@ -51,12 +51,12 @@ export default [
   { ignores: ['vendor/**', 'dist/**', 'node_modules/**', 'test_results/**', 'test/fixtures/**'] },
   {
     files: ['lib/**/*.js', 'background/**/*.js'],
-    languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: { ...shared, ...worker } },
+    languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...shared, ...worker } },
     rules,
   },
   {
     files: ['content/**/*.js', 'options/**/*.js', 'test/harness.js'],
-    languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: { ...shared, ...browser } },
+    languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...shared, ...browser } },
     rules,
   },
   {

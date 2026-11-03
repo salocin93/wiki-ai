@@ -1,5 +1,6 @@
 #!/bin/zsh
-# Zips the extension: dist/wiki-ai-<version>.zip with only what the browser needs (no tests, no git history).
+# Zips a release build of the extension: dist/wiki-ai-<version>.zip with only what the browser needs (the bundled
+# scripts without source maps, pages, styles, icons, KaTeX). The development build in dist/wiki-ai/ is left as it is.
 # Usage: scripts/package.sh          for testers (adds TESTING.md, the "Load unpacked" guide)
 #        scripts/package.sh --store  for the Chrome Web Store (manifest at the zip's root, no tester guide)
 set -euo pipefail
@@ -21,10 +22,8 @@ rm -f "$out"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir "$stage/wiki-ai"
-cp -R manifest.json background content lib options icons vendor "$stage/wiki-ai/"
+node scripts/build.mjs --release --out "$stage/wiki-ai" > /dev/null
 $store || cp TESTING.md "$stage/wiki-ai/"
-rm -f "$stage/wiki-ai/icons/logo-dark.svg" # only the README uses it
-find "$stage" -name '.DS_Store' -delete
 
 # The store wants manifest.json at the root of the zip; testers get a single "wiki-ai" folder.
 if $store; then

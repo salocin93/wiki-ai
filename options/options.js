@@ -1,7 +1,11 @@
-const W = globalThis.WikiAI;
+// The settings page: model provider, key, answer options and stored data.
+import { appSettings } from '../lib/settings.js';
+import { llm } from '../lib/llm.js';
+import { textUtil } from '../lib/text.js';
+
 /** @type {(id: string) => any} */ // form controls of several kinds
 const $ = (id) => document.getElementById(id);
-const { esc } = W.text;
+const { esc } = textUtil;
 
 const ABOUT = {
   gemini: { title: 'Google Gemini', blurb: "Google's API with a free key" },
@@ -23,14 +27,14 @@ function languageOptions() {
       return code;
     }
   };
-  const mine = W.settings.browserLanguage();
+  const mine = appSettings.browserLanguage();
   return [
     `<option value="browser">My language (${esc(own(mine))}, from the browser)</option>`,
     `<option value="article">Same as the Wikipedia article</option>`,
     `<option value="question">Same as my question</option>`,
     ...LANGUAGES.map((c) => {
       const name = own(c);
-      const english = W.settings.languageName(c);
+      const english = appSettings.languageName(c);
       return `<option value="${c}">${esc(name)}${name.toLowerCase() === english.toLowerCase() ? '' : ` · ${esc(english)}`}</option>`;
     }),
   ].join('');
@@ -63,7 +67,7 @@ function scheduleSave() {
   saveTimer = setTimeout(async () => {
     settings = collect();
     apiKeys = settings.apiKeys;
-    await W.settings.save(settings);
+    await appSettings.save(settings);
     const el = $('saved');
     el.textContent = 'Saved';
     el.classList.add('show');
@@ -82,10 +86,10 @@ function connection(state, text) {
 // ---------- Provider cards ----------
 
 function renderProviders() {
-  $('providers').innerHTML = Object.keys(W.settings.PRESETS)
+  $('providers').innerHTML = Object.keys(appSettings.PRESETS)
     .map(
       (id) => `<button type="button" class="provider" role="radio" aria-checked="${id === settings.provider}" data-id="${id}">
-        <strong>${esc(ABOUT[id]?.title || W.settings.PRESETS[id].label)}</strong><span>${esc(ABOUT[id]?.blurb || '')}</span>
+        <strong>${esc(ABOUT[id]?.title || appSettings.PRESETS[id].label)}</strong><span>${esc(ABOUT[id]?.blurb || '')}</span>
       </button>`
     )
     .join('');
@@ -99,7 +103,7 @@ $('providers').addEventListener('click', (e) => {
   // Each provider keeps its own address and models, so switching back restores them.
   const { baseUrl, model, fallbackModel } = collect();
   const connections = { ...settings.connections, [settings.provider]: { baseUrl, model, fallbackModel } };
-  const conn = connections[card.dataset.id] || W.settings.PRESETS[card.dataset.id];
+  const conn = connections[card.dataset.id] || appSettings.PRESETS[card.dataset.id];
   settings = { ...settings, connections, provider: card.dataset.id, baseUrl: conn.baseUrl, model: conn.model, fallbackModel: conn.fallbackModel };
   $('baseUrl').value = conn.baseUrl;
   $('apiKey').value = apiKeys[settings.provider] || '';
@@ -161,7 +165,7 @@ async function refreshModels({ probe = false } = {}) {
   const id = ++loadId;
   connection('busy', 'Loading models…');
   try {
-    const listed = await W.llm.listModels(s);
+    const listed = await llm.listModels(s);
     if (id !== loadId) return;
     // Leave out models that can't chat (embeddings, image and video generation, speech).
     models = listed.filter((m) => !/embed|imagen|veo|tts|aqa|image-generation|lyria/i.test(m)).sort();
@@ -202,7 +206,7 @@ async function refreshModels({ probe = false } = {}) {
 }
 
 async function probeModel(s, model) {
-  const problem = W.settings.endpointProblem(s.baseUrl);
+  const problem = appSettings.endpointProblem(s.baseUrl);
   if (problem) return `not checked: ${problem}`;
   try {
     const res = await fetch(`${s.baseUrl.replace(/\/$/, '')}/chat/completions`, {
@@ -238,7 +242,7 @@ $('toggleKey').addEventListener('click', () => {
 });
 $('test').addEventListener('click', async () => {
   const s = collect();
-  const problem = s.baseUrl && W.settings.endpointProblem(s.baseUrl);
+  const problem = s.baseUrl && appSettings.endpointProblem(s.baseUrl);
   if (problem) return connection('err', problem);
   if (s.baseUrl && !(await allowEndpoint(s.baseUrl))) return connection('err', `Wiki AI isn't allowed to reach ${s.baseUrl}. Click Test connection again and choose Allow.`);
   refreshModels({ probe: true });
@@ -301,9 +305,9 @@ $('clearAll').addEventListener('click', async () => {
 // ---------- Start ----------
 
 (async function init() {
-  $('version').innerHTML = `Wiki AI ${esc(chrome.runtime.getManifest().version)} · <a href="${esc(W.settings.PRIVACY_URL)}" target="_blank" rel="noopener noreferrer">Privacy policy</a>`;
-  settings = await W.settings.load();
-  if (!W.settings.PRESETS[settings.provider]) settings = { ...settings, provider: Object.keys(W.settings.PRESETS)[0] };
+  $('version').innerHTML = `Wiki AI ${esc(chrome.runtime.getManifest().version)} · <a href="${esc(appSettings.PRIVACY_URL)}" target="_blank" rel="noopener noreferrer">Privacy policy</a>`;
+  settings = await appSettings.load();
+  if (!appSettings.PRESETS[settings.provider]) settings = { ...settings, provider: Object.keys(appSettings.PRESETS)[0] };
   apiKeys = { ...(settings.apiKeys || {}), [settings.provider]: settings.apiKey };
   $('apiKey').value = settings.apiKey || '';
   $('baseUrl').value = settings.baseUrl || '';
