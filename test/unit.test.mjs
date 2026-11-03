@@ -322,3 +322,14 @@ test('agent: a search for words like "best known" reads the introduction instead
   assert.equal(r.describe('search_article', { query: 'best known' }), 'Reading the introduction');
   assert.equal(r.describe('search_article', { query: 'sunflowers Arles' }), 'Searching this article for “sunflowers Arles”');
 });
+
+test('agent: a linked article named like part of this article is not read ahead', () => {
+  const r = run({
+    page: { lang: 'en', title: 'Vincent van Gogh', links: [{ title: 'Van Gogh (1948 film)' }, { title: 'Ada Lovelace (microarchitecture)' }, { title: 'Paul Gauguin' }, { title: 'Theo van Gogh (art dealer)' }] },
+  });
+  r.current = { page: { title: 'Vincent van Gogh' } };
+  assert.deepEqual(r.mentionedArticles('What is Vincent van Gogh best known for?'), []);
+  assert.deepEqual(r.mentionedArticles('What did Van Gogh paint in Arles?'), [], 'the surname alone is this article too');
+  assert.deepEqual(r.mentionedArticles('How did Van Gogh meet Paul Gauguin?'), ['Paul Gauguin']);
+  assert.deepEqual(r.mentionedArticles('What did Theo van Gogh do for him?'), ['Theo van Gogh (art dealer)'], 'a longer name with other words still counts');
+});
