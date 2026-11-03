@@ -97,7 +97,11 @@ header {
 .answer code { background: var(--bg-soft); padding: 1px 4px; border-radius: 4px; font-size: 12.5px; }
 .answer .unsupported { text-decoration: underline dotted var(--danger); text-decoration-thickness: 1.5px; text-underline-offset: 3px; cursor: help; }
 .answer .unsupported.uncited { text-decoration-color: var(--muted); text-decoration-thickness: 1px; }
-.grounding-note { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.omitted { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.omitted summary { cursor: pointer; }
+.omitted ul { margin: 6px 0 0; padding-left: 18px; }
+.omitted li { margin: 4px 0; }
+.omitted .why { display: block; font-style: italic; }
 
 .cite {
   display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; margin: 0 1px;

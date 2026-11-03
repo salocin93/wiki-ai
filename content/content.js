@@ -876,7 +876,6 @@ import { topicMap } from './map.js';
     try {
       const s = await chrome.runtime.sendMessage({ type: 'getSettings' });
       state.answerLanguage = s?.answerLanguage || 'browser';
-      state.verifyCitations = !!s?.verifyCitations;
       // Shown above the chat until the reader dismisses it once.
       state.notice = s?.recipient && !s.noticeSeen ? { recipient: s.recipient, privacyUrl: s.privacyUrl } : null;
     } catch {
@@ -1083,26 +1082,16 @@ import { topicMap } from './map.js';
       .join('')}${licenseLine('', `https://${lang}.wikipedia.org/`)}</div>`;
   }
 
-  // How long an answer took and what the citation check added, with the switch for the next answers, so the two can
-  // be compared on the same questions.
-  const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
-  function timingLine(m) {
-    const t = m.timing;
-    if (!t) return '';
-    const check = t.checked ? ` (citation check ${seconds(t.checkMs)})` : '';
-    const toggle = `<button class="link toggle-check" title="${state.verifyCitations ? 'Answer without the extra check by the model' : 'Have the model check each cited sentence against its passages (one more request per answer)'}">${state.verifyCitations ? 'Turn citation check off' : 'Turn citation check on'}</button>`;
-    return ` · ${seconds(t.ms)}${check} · ${toggle}`;
-  }
-
-  // The note under an answer with underlined sentences, saying what kind of problem they have. A sentence can
-  // cite a real passage and still be underlined: the passage doesn't say all of it.
-  function groundingNote(flagged) {
-    const kinds = new Set(flagged.map((f) => f.kind));
-    const parts = [];
-    if (kinds.has('miscited') || kinds.has('unverified')) parts.push('Underlined parts say more than the passages they cite.');
-    if (kinds.has('missing')) parts.push("Underlined parts include details that aren't in the Wikipedia sources.");
-    if (kinds.has('uncited')) parts.push('Parts underlined in grey have no source number.');
-    return `${parts.join(' ')} Hover over them to see why.`;
+  // Sentences left out of an answer because its sources didn't back them (after one round of fixing), listed
+  // quietly under it for anyone who wants to see them. Shown without their source numbers.
+  function omittedNote(m) {
+    const list = m.omitted || [];
+    if (!list.length) return '';
+    const n = list.length;
+    const items = list
+      .map((o) => `<li>${textUtil.esc(textUtil.plain(o.text).replace(textUtil.CITE, '').replace(/\s+([.,;:!?])/g, '$1').trim())}${o.why ? `<span class="why">${textUtil.esc(o.why)}</span>` : ''}</li>`)
+      .join('');
+    return `<details class="omitted"${m.omittedOpen ? ' open' : ''}><summary>${n} statement${n > 1 ? 's were' : ' was'} left out because the sources didn't back ${n > 1 ? 'them' : 'it'}</summary><ul>${items}</ul></details>`;
   }
 
   function renderMessage(m, i) {
@@ -1114,13 +1103,12 @@ import { topicMap } from './map.js';
       ? `<details class="steps"${m.stepsOpen ?? m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${textUtil.esc(s)}</li>`).join('')}</ul></details>`
       : '';
     const reasoning = m.reasoning ? `<details class="reasoning"${m.reasoningOpen ? ' open' : ''}><summary>Thinking</summary><div>${textUtil.esc(m.reasoning)}</div></details>` : '';
-    const flagged = m.pending ? [] : m.unsupported || [];
     // Sources are numbered across the chat; each answer shows its own as 1, 2, 3… in the order it cites them.
     const cited = m.pending ? [] : textUtil.citedNumbers(m.content || '').filter(known);
     const labelOf = new Map(cited.map((n, k) => [n, k + 1]));
     const attrs = (n) => ({ ...citeAttrs(n), label: labelOf.get(n) });
-    const body = m.content ? `<div class="answer">${markdown.render(m.content, known, attrs, flagged)}</div>` : '';
-    const grounding = flagged.length ? `<div class="grounding-note">${groundingNote(flagged)}</div>` : '';
+    const body = m.content ? `<div class="answer">${markdown.render(m.content, known, attrs)}</div>` : '';
+    const grounding = m.pending ? '' : omittedNote(m);
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${textUtil.esc(m.status || 'Thinking')}${m.words ? ` <span class="words">· ${m.words} words</span>` : ''}</div>` : '';
     const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
     const error = m.error
@@ -1128,7 +1116,7 @@ import { topicMap } from './map.js';
       : '';
     const sources = cited.length ? renderSourceGroups(cited, labelOf) : '';
     const figures = cited.length ? renderFigures(cited, labelOf) : '';
-    const meta = m.model && !m.pending ? `<div class="meta">${textUtil.esc(m.model)}${timingLine(m)}${debug}</div>` : '';
+    const meta = m.model && !m.pending ? `<div class="meta">${textUtil.esc(m.model)}${debug}</div>` : '';
     const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
     const followups = !m.pending && m.followups?.length
       ? `<div class="followups"><div class="fu-label">Ask next</div>${m.followups
@@ -1282,9 +1270,8 @@ import { topicMap } from './map.js';
         m.pending = false;
         if (msg.answer) m.content = msg.answer;
         if (msg.model) m.model = msg.model;
-        if (msg.timing) m.timing = msg.timing;
         if (msg.followups?.length) m.followups = msg.followups;
-        m.unsupported = msg.unsupported?.length ? msg.unsupported : undefined;
+        m.omitted = msg.omitted?.length ? msg.omitted : undefined;
         if (msg.stopped && !m.content) m.error = 'Stopped.';
         announce(m.error || `Answer: ${spoken(m.content)}`);
         finish();
@@ -1410,7 +1397,7 @@ import { topicMap } from './map.js';
   for (const type of ['wheel', 'touchmove', 'keydown']) messagesEl.addEventListener(type, () => (state.pinQuestion = false), { passive: true });
   messagesEl.addEventListener('mousedown', (e) => e.target === messagesEl && (state.pinQuestion = false)); // the scrollbar
 
-  // Remember opened/closed step and thinking lists, so streaming re-renders don't snap them shut.
+  // Remember opened/closed step, thinking and left-out lists, so re-renders don't snap them shut.
   messagesEl.addEventListener(
     'toggle',
     (e) => {
@@ -1419,6 +1406,7 @@ import { topicMap } from './map.js';
       if (!m) return;
       if (d.classList.contains('steps')) m.stepsOpen = d.open;
       if (d.classList.contains('reasoning')) m.reasoningOpen = d.open;
+      if (d.classList.contains('omitted')) m.omittedOpen = d.open;
     },
     true
   );
@@ -1457,14 +1445,6 @@ import { topicMap } from './map.js';
     } else if (t.matches('.go-map')) setView('map');
     else if (t.matches('.go-topic')) setView('topic');
     else if (t.matches('.open-settings')) openOptions();
-    else if (t.matches('.toggle-check')) {
-      const on = !state.verifyCitations;
-      send({ type: 'setVerifyCitations', on }).then(() => {
-        state.verifyCitations = on;
-        announce(on ? 'Citation check on for the next answers' : 'Citation check off for the next answers');
-        render();
-      }, () => announce("Couldn't change the setting"));
-    }
     else if (t.matches('.reload-page')) location.reload();
     else if (t.matches('.build-topic')) buildTopic();
     else if (t.matches('.chat-topic')) setScope(true).then(() => setView('chat'));

@@ -25,7 +25,7 @@ function fromWikipedia(sender) {
   }
 }
 const SIDEBAR_TYPES = new Set([
-  'openOptions', 'getSettings', 'privacyNoticeSeen', 'setVerifyCitations', 'handoff:get', 'handoff:set',
+  'openOptions', 'getSettings', 'privacyNoticeSeen', 'handoff:get', 'handoff:set',
   'topics:list', 'topics:active', 'topics:forPage', 'topics:setActive', 'topics:delete', 'topics:addPage', 'topics:removePage',
   'conv:list', 'conv:all', 'conv:save', 'conv:delete',
 ]);
@@ -44,7 +44,6 @@ function wellFormed(msg) {
     case 'topics:addPage':
     case 'topics:removePage': return str(msg.id, 100) && str(msg.title, 500);
     case 'handoff:set': return Array.isArray(msg.list) && msg.list.length <= 10;
-    case 'setVerifyCitations': return typeof msg.on === 'boolean';
     case 'ask': return str(msg.question, 5000) && Array.isArray(msg.history ?? []) && Array.isArray(msg.sources ?? []) && validPage(msg.page) && (msg.topicId == null || str(msg.topicId, 100));
     case 'buildTopic': return validPage(msg.page);
     default: return true;
@@ -161,20 +160,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         fallbackModel: s.fallbackModel,
         hasKey: !!s.apiKey,
         answerLanguage: s.answerLanguage,
-        verifyCitations: s.verifyCitations,
         recipient: appSettings.recipient(s),
         privacyUrl: appSettings.PRIVACY_URL,
         noticeSeen: !!seen,
       })
     );
-    return true;
-  }
-  // The panel's switch for the citation check, next to each answer's timing (the same setting as on the settings page).
-  if (msg.type === 'setVerifyCitations') {
-    appSettings
-      .load()
-      .then((s) => appSettings.save({ ...s, verifyCitations: msg.on }))
-      .then(() => sendResponse({ ok: true }), (e) => sendResponse({ error: e.message || String(e) }));
     return true;
   }
   if (msg.type === 'privacyNoticeSeen') {
