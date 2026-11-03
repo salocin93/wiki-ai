@@ -297,19 +297,19 @@ textarea:focus { border-color: var(--accent); }
 .topic { padding: 4px 16px 20px; font-size: 13px; }
 .history { font-size: 13px; }
 .topic h4, .history h4 { margin: 18px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-.history h4 { margin-top: 0; }
 .topic h5 { margin: 12px 0 2px; font-size: 13px; }
 .topic .why, .history .why, .empty .why { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
 .topic ul, .history ul { list-style: none; margin: 0; padding: 0; }
-.topic li, .history li {
+.topic li {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px;
   padding: 5px 28px 5px 0; position: relative; border-radius: 6px;
 }
-.topic li.here, .history li.here { background: var(--bg-soft); padding-left: 6px; }
-.topic li a, .topic li .open-topic, .history li .open-chat { color: var(--accent); text-decoration: none; font-weight: 600; text-align: left; }
+.topic li.here { background: var(--bg-soft); padding-left: 6px; }
+.topic li a, .topic li .open-topic { color: var(--accent); text-decoration: none; font-weight: 600; text-align: left; }
 .topic li a:hover { text-decoration: underline; }
-.topic .desc, .history .desc { width: 100%; color: var(--muted); font-size: 12px; line-height: 1.35; }
-.topic li .icon, .history li .icon { position: absolute; right: 0; top: 3px; width: 24px; height: 24px; font-size: 16px; opacity: 0; }
+.topic .desc { width: 100%; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.topic li .icon, .history li .icon { width: 24px; height: 24px; font-size: 16px; opacity: 0; }
+.topic li .icon { position: absolute; right: 0; top: 3px; }
 .topic li:hover .icon, .history li:hover .icon, .topic li .icon:focus-visible, .history li .icon:focus-visible { opacity: 1; }
 @media (hover: none) { .topic li .icon, .history li .icon { opacity: 1; } }
 .topic .seed { margin-bottom: 4px; }
@@ -419,11 +419,33 @@ button.primary { padding: 8px 14px; border-radius: 8px; border: none; background
   background: var(--bg-soft); border: 1px solid var(--border); border-radius: 8px; outline: none;
 }
 .history-search:focus { border-color: var(--accent); }
-.history-group { margin: 6px 0 14px; }
-.history-scope { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.history .history-search { margin-bottom: 16px; }
+.history h4 { margin: 22px 0 6px; }
+.history-lists > h4:first-child { margin-top: 0; }
+/* Rows reach 10px past the text on both sides, so titles line up with the headings and the hover fills the width. */
+.history ul { margin: 0 -10px; }
+.history-item { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.history-item:hover, .history-item.here { background: var(--bg-soft); }
+.history-item.here { box-shadow: inset 3px 0 0 var(--accent); }
+.history-open {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 7px 4px 7px 10px;
+  background: none; border: none; border-radius: 8px; font: inherit; color: var(--text); text-align: left; cursor: pointer;
+}
+.history-title {
+  font-weight: 500; line-height: 1.35; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.history-item.here .history-title { color: var(--accent); }
+.history-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.history-meta { color: var(--muted); font-size: 12px; }
+.history-item .icon { flex: none; margin-right: 4px; color: var(--muted); }
+.history-group { margin-top: 12px; }
+.history-group + .history-group { padding-top: 12px; border-top: 1px solid var(--border); }
+.history-scope { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.history-scope span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-scope svg { width: 14px; height: 14px; color: var(--muted); flex: none; }
 .history-scope.topic svg { color: var(--accent); }
-.history-scope .tag { font-weight: 400; color: var(--muted); font-size: 12px; }
+.history-scope .tag { flex: none; font-weight: 400; color: var(--muted); font-size: 12px; }
 
 /* Images an answer cites */
 .answer-figures { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
