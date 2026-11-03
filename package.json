@@ -3,11 +3,15 @@
   "private": true,
   "description": "Chrome extension: chat with an AI model about the Wikipedia article you're reading.",
   "scripts": {
+    "lint": "eslint .",
     "test": "node --test test/unit.test.mjs test/grounding-check.mjs test/tables-check.mjs",
     "package": "scripts/package.sh",
     "package:store": "scripts/package.sh --store"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "eslint": "^10.14.0"
   }
 }

@@ -23,7 +23,9 @@ const W = globalThis.WikiAI;
 // (it holds the API key), where the browser supports closing it to them.
 try {
   chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' })?.catch?.(() => {});
-} catch {} // not supported for this storage area in older browsers
+} catch {
+  // not supported for this storage area in older browsers
+}
 
 // A content script's sender.url is its web page, so it can't pass for one of the extension's pages.
 const fromExtensionPage = (sender) => !!sender.url?.startsWith(chrome.runtime.getURL(''));
@@ -92,7 +94,9 @@ chrome.runtime.onConnect.addListener((port) => {
   const emit = (msg) => {
     try {
       port.postMessage(msg);
-    } catch {} // tab closed or navigated away
+    } catch {
+      // tab closed or navigated away
+    }
   };
 
   port.onMessage.addListener(async (msg) => {

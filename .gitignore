@@ -3,3 +3,4 @@
 dist/
 test/fixtures/
 test_results/
+node_modules/

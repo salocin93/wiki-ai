@@ -304,7 +304,9 @@
     let range = null;
     try {
       range = /^(Table|Infobox|Figure)\b/.test(src.text) ? locateRows(src.text) : locate(src.text);
-    } catch {}
+    } catch {
+      // the page changed under us: show the passage without a highlight
+    }
     if (range) {
       if (globalThis.CSS?.highlights && globalThis.Highlight) CSS.highlights.set('wikiai-cite', new Highlight(range));
       const start = range.startContainer;
@@ -509,7 +511,9 @@
   const remember = (key, value) => {
     try {
       sessionStorage.setItem(`wikiai:${key}`, value);
-    } catch {}
+    } catch {
+      // storage blocked or full: the setting just isn't remembered
+    }
   };
   const recall = (key) => {
     try {
@@ -608,7 +612,9 @@
       // A topic opened on purpose stays; otherwise the one that has this article, so the scope fits the page.
       state.topic = await send(state.useTopicHere === true ? { type: 'topics:active' } : { type: 'topics:forPage', lang, title });
       state.savedTopics = await send({ type: 'topics:list' });
-    } catch {}
+    } catch {
+      // worker unavailable: carry on without a topic
+    }
     renderTopic();
     if (state.view === 'map') renderMapView();
     if (currentScope() !== state.scope) await loadConversations();
@@ -918,7 +924,9 @@
     let saved = [];
     try {
       saved = (await send({ type: 'conv:list', scope: state.scope })) || [];
-    } catch {}
+    } catch {
+      // worker unavailable: start with no saved chats
+    }
     // Keep a conversation that is still answering, even if it belongs elsewhere.
     const running = state.request && !saved.some((c) => c.id === state.request.id) ? [state.request] : [];
     state.convs = [...saved, ...running];
@@ -1260,7 +1268,9 @@
       state.answerLanguage = s?.answerLanguage || 'browser';
       // Shown above the chat until the reader dismisses it once.
       state.notice = s?.recipient && !s.noticeSeen ? { recipient: s.recipient, privacyUrl: s.privacyUrl } : null;
-    } catch {}
+    } catch {
+      // worker unavailable: keep the defaults
+    }
   }
 
   // A page that lists the meanings of a name ("Mercury"): no single subject to build a topic around.
