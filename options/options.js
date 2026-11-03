@@ -200,6 +200,8 @@ async function refreshModels({ probe = false } = {}) {
 }
 
 async function probeModel(s, model) {
+  const problem = W.settings.endpointProblem(s.baseUrl);
+  if (problem) return `not checked: ${problem}`;
   try {
     const res = await fetch(`${s.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -234,12 +236,14 @@ $('toggleKey').addEventListener('click', () => {
 });
 $('test').addEventListener('click', async () => {
   const s = collect();
+  const problem = s.baseUrl && W.settings.endpointProblem(s.baseUrl);
+  if (problem) return connection('err', problem);
   if (s.baseUrl && !(await allowEndpoint(s.baseUrl))) return connection('err', `Wiki AI isn't allowed to reach ${s.baseUrl}. Click Test connection again and choose Allow.`);
   refreshModels({ probe: true });
 });
 
-// Wikipedia, Gemini and this computer are allowed in the manifest; any other server needs the reader's
-// permission, which the browser only asks for during a click.
+// Wikipedia and Gemini are allowed in the manifest; any other server (this computer's too) needs the
+// reader's permission, which the browser only asks for during a click.
 async function allowEndpoint(baseUrl) {
   if (!globalThis.chrome?.permissions) return true;
   let url;
@@ -262,33 +266,40 @@ $('answerLanguage').addEventListener('change', () => {
 
 // ---------- Storage ----------
 
+// Through the service worker: it keeps parts of the cache in memory too, and queues writes from all tabs.
+async function data(msg) {
+  const res = await chrome.runtime.sendMessage(msg);
+  if (res?.error) throw new Error(res.error);
+  return res?.result;
+}
+
 async function showStorage() {
-  const s = await W.topics.handle({ type: 'cache:stats' });
+  const s = await data({ type: 'cache:stats' });
   const mb = s.bytes != null ? ` · about ${(s.bytes / 1e6).toFixed(1)} MB in total` : '';
   const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   $('storage').textContent = `${count(s.entries, 'cached Wikipedia response', 'cached Wikipedia responses')} · ${count(s.topics, 'saved topic', 'saved topics')}${mb}`;
 }
 $('clearCache').addEventListener('click', async () => {
-  await W.topics.handle({ type: 'cache:clear' });
+  await data({ type: 'cache:clear' });
   showStorage();
 });
 $('clearTopics').addEventListener('click', async () => {
-  const n = (await W.topics.handle({ type: 'topics:list' })).length;
+  const n = (await data({ type: 'topics:list' })).length;
   if (!n || !confirm(`Delete all ${n} saved topic${n > 1 ? 's' : ''} and the chats in them? Chats about single articles stay.`)) return;
-  await W.topics.handle({ type: 'topics:clear' });
+  await data({ type: 'topics:clear' });
   showStorage();
 });
 // Starts over with no topics, chats or cached articles; settings and keys stay. Used to sit in the sidebar header.
 $('clearAll').addEventListener('click', async () => {
   if (!confirm("Delete all topics, all chats and the article cache? Your settings and API keys stay. This can't be undone.")) return;
-  await W.topics.handle({ type: 'data:clear' });
+  await data({ type: 'data:clear' });
   showStorage();
 });
 
 // ---------- Start ----------
 
 (async function init() {
-  $('version').textContent = `Wiki AI ${chrome.runtime.getManifest().version}`;
+  $('version').innerHTML = `Wiki AI ${esc(chrome.runtime.getManifest().version)} · <a href="${esc(W.settings.PRIVACY_URL)}" target="_blank" rel="noopener noreferrer">Privacy policy</a>`;
   settings = await W.settings.load();
   if (!W.settings.PRESETS[settings.provider]) settings = { ...settings, provider: Object.keys(W.settings.PRESETS)[0] };
   apiKeys = { ...(settings.apiKeys || {}), [settings.provider]: settings.apiKey };

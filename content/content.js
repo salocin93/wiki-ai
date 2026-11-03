@@ -314,6 +314,11 @@
     for (let d = el.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true;
   }
 
+  // Quoted Wikipedia text is CC BY-SA: name the source and the licence wherever it's shown.
+  const LICENSE_URL = 'https://creativecommons.org/licenses/by-sa/4.0/';
+  const licenseLine = (page, url) =>
+    `<div class="license">Text from <a href="${url}" target="_blank" rel="noopener noreferrer">${W.markdown.esc(page ? `Wikipedia: ${page}` : 'Wikipedia')}</a>, <a href="${LICENSE_URL}" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a></div>`;
+
   function articleUrl(src) {
     return `https://${src.lang}.wikipedia.org/wiki/${encodeURIComponent(src.page.replace(/ /g, '_'))}`;
   }
@@ -393,11 +398,6 @@
     ::highlight(wikiai-cite) { background-color: rgba(255, 196, 0, 0.45); color: inherit; }
     html.wikiai-open body { margin-right: ${PANEL_WIDTH}px !important; }
     html.wikiai-open .vector-sticky-header { right: ${PANEL_WIDTH}px !important; width: auto !important; }
-    /* Fundraising and other CentralNotice banners can overlay the panel; hide them while it's open
-       (hidden only, not dismissed, so Wikipedia's own "don't show again" choice stays the user's). */
-    html.wikiai-open #siteNotice, html.wikiai-open #centralNotice, html.wikiai-open .cn-banner,
-    html.wikiai-open .cn-fundraising, html.wikiai-open [id^="frb"], html.wikiai-open [class*="frb-"],
-    html.wikiai-open [id^="WMDE"], html.wikiai-open .wmde-banner { display: none !important; }
     html.wikiai-open, html.wikiai-open body { overflow: auto !important; }
     /* Wide data tables scroll on their own instead of running under the panel. */
     html.wikiai-open .mw-parser-output table.wikitable { display: block; max-width: 100%; overflow-x: auto; }`;
@@ -899,7 +899,13 @@
   }
 
   function saveConv(c) {
-    send({ type: 'conv:save', scope: c.scope || state.scope, conv: c }).catch(() => {});
+    send({ type: 'conv:save', scope: c.scope || state.scope, conv: c }).then(
+      () => state.saveError && ((state.saveError = null), renderChatBar()),
+      (e) => {
+        state.saveError = `This chat couldn't be saved (${e.message}). It stays open until you leave the page.`;
+        renderChatBar();
+      }
+    );
   }
 
   function openChat(id) {
@@ -984,7 +990,8 @@
     const c = conv();
     chatBar.innerHTML = `
       <span class="chat-title" title="${esc(c?.title || '')}">${esc(truncate(c?.title || (topicHere() ? 'New topic chat' : 'New chat'), 52))}</span>
-      <button class="link new-chat">New chat</button>`;
+      <button class="link new-chat">New chat</button>
+      ${state.saveError ? `<div class="save-error" role="alert">${esc(state.saveError)}</div>` : ''}`;
     renderNav();
   }
 
@@ -1216,7 +1223,10 @@
 
   async function loadLanguage() {
     try {
-      state.answerLanguage = (await chrome.runtime.sendMessage({ type: 'getSettings' }))?.answerLanguage || 'browser';
+      const s = await chrome.runtime.sendMessage({ type: 'getSettings' });
+      state.answerLanguage = s?.answerLanguage || 'browser';
+      // Shown above the chat until the reader dismisses it once.
+      state.notice = s?.recipient && !s.noticeSeen ? { recipient: s.recipient, privacyUrl: s.privacyUrl } : null;
     } catch {}
   }
 
@@ -1276,6 +1286,16 @@
       </div>`;
   }
 
+  // Before the first question: what is sent where, with the privacy policy.
+  function noticeCard() {
+    const n = state.notice;
+    if (!n) return '';
+    return `<div class="privacy-notice" role="note">
+        <p>To answer, Wiki AI sends your question, any text you select, your earlier questions in the chat, and passages from Wikipedia to <strong>${esc(n.recipient)}</strong>. Your chats are saved only in this browser.</p>
+        <p><a href="${esc(n.privacyUrl)}" target="_blank" rel="noopener noreferrer">Privacy policy</a> · <button class="link dismiss-notice">Got it</button></p>
+      </div>`;
+  }
+
   function render(restoreScroll = false) {
     const c = conv();
     if (!c || state.view !== 'chat') return;
@@ -1284,6 +1304,7 @@
       const open = unexplored().reduce((n, g) => n + g.items.length, 0);
       messagesEl.innerHTML = `
         <div class="empty">
+          ${noticeCard()}
           ${t ? topicCard(t) : articleCard()}
           <div class="fu-label">Try asking</div>
           ${(t ? topicSuggestions(t) : starterSuggestions()).map((q) => `<button class="suggestion">${esc(q)}</button>`).join('')}
@@ -1300,7 +1321,7 @@
         d.scrollHeight - d.scrollTop - d.clientHeight < 8 ? Infinity : d.scrollTop,
       ])
     );
-    messagesEl.innerHTML = c.messages.map(renderMessage).join('');
+    messagesEl.innerHTML = noticeCard() + c.messages.map(renderMessage).join('');
     for (const d of messagesEl.querySelectorAll('.msg[data-i] .reasoning div')) {
       const top = thinking.get(d.closest('.msg').dataset.i);
       if (top !== undefined) d.scrollTop = top === Infinity ? d.scrollHeight : top;
@@ -1362,7 +1383,7 @@
           .join('');
         return `<div class="source-group c${pageColor(page)}"><div class="page-row">${pageEl}</div><div class="chips">${sections}</div></div>`;
       })
-      .join('')}</div>`;
+      .join('')}${licenseLine('', `https://${lang}.wikipedia.org/`)}</div>`;
   }
 
   function renderMessage(m, i) {
@@ -1381,7 +1402,7 @@
     const attrs = (n) => ({ ...citeAttrs(n), label: labelOf.get(n) });
     const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, attrs, flagged)}</div>` : '';
     const grounding = flagged.length
-      ? `<div class="grounding-note">Underlined parts couldn't be matched to the Wikipedia sources. Hover over them to see why.</div>`
+      ? `<div class="grounding-note">${flagged.some((f) => f.kind !== 'uncited') ? "Underlined parts couldn't be matched to the Wikipedia sources." : 'Parts underlined in grey have no source number.'} Hover over them to see why.</div>`
       : '';
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.markdown.esc(m.status || 'Thinking')}</div>` : '';
     const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
@@ -1458,6 +1479,15 @@
     port.onMessage.addListener(onAgentMessage);
     port.onDisconnect.addListener(() => {
       state.port = null;
+      // A topic being built has no one left to finish it.
+      if (state.building) {
+        state.building = null;
+        state.topicError = 'Building the topic stopped because the connection to the extension was lost. Try again.';
+        state.topicNote = false;
+        renderTopic();
+        renderScopeBar();
+        if (state.view === 'map') renderMapView();
+      }
       const c = state.request;
       const m = c?.messages[c.messages.length - 1];
       if (state.busy && m?.pending) {
@@ -1544,7 +1574,7 @@
 
   // An earlier answer as the model sees it again: without the sentences the source check couldn't match,
   // so details from memory don't come back later looking sourced.
-  const withoutUnsupported = (m) => (m.unsupported || []).reduce((text, u) => text.replace(u.text, ''), m.content).replace(/[ \t]+\n/g, '\n');
+  const withoutUnsupported = (m) => (m.unsupported || []).filter((u) => u.kind !== 'uncited').reduce((text, u) => text.replace(u.text, ''), m.content).replace(/[ \t]+\n/g, '\n');
 
   function ask(question, c = conv()) {
     question = question.trim();
@@ -1596,6 +1626,7 @@
       </div>
       ${src.figure?.thumb ? `<img class="preview-img" src="${W.markdown.esc(src.figure.thumb)}" alt="">` : ''}
       <div class="preview-text">${W.markdown.esc(src.text)}</div>
+      ${licenseLine(src.page, articleUrl(src))}
       <div class="preview-actions">
         ${isHere(src) ? '<button class="link show-in-page">Show in article</button>' : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener">Open “${W.markdown.esc(src.page)}” ↗</a>`}
       </div>`;
@@ -1670,7 +1701,11 @@
         .writeText(JSON.stringify(traces.get(conv().messages[Number(t.dataset.i)]), null, 2))
         .then(() => (t.textContent = 'Copied'), () => (t.textContent = "Couldn't copy"));
     }
-    else if (t.matches('.clear-quote')) setQuote(null);
+    else if (t.matches('.dismiss-notice')) {
+      state.notice = null;
+      send({ type: 'privacyNoticeSeen' }).catch(() => {});
+      render();
+    } else if (t.matches('.clear-quote')) setQuote(null);
     else if (t.matches('.close-preview')) previewEl.hidden = true;
     else if (t.matches('.show-in-page')) highlightSource(conv().sources[Number(previewEl.dataset.n) - 1]);
     else if (t.matches('.view-btn')) setView(t.dataset.view);
@@ -1708,7 +1743,7 @@
     }
     else if (t.matches('.delete-topic')) {
       const name = state.savedTopics.find((x) => x.id === t.dataset.id)?.name;
-      if (confirm(`Delete the topic “${name}”? This can't be undone.`)) topicAction(() => send({ type: 'topics:delete', id: t.dataset.id }));
+      if (confirm(`Delete the topic “${name}” and the chats in it? This can't be undone.`)) topicAction(() => send({ type: 'topics:delete', id: t.dataset.id }));
     }
   });
 

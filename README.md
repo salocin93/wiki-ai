@@ -56,9 +56,9 @@ With a topic active, the model gets the topic map (themes, articles, description
 
 | What | Where | Size and lifetime |
 |---|---|---|
-| Saved topics (titles, themes, short summaries, links between pages) | `chrome.storage.local` | ~20–60 KB per topic, kept until you delete it |
+| Saved topics (titles, themes, short summaries, links between pages) | `chrome.storage.local` | ~20–60 KB per topic, kept until you delete it; 50 at most (least recently changed dropped, with their chats) |
 | Wikipedia article text and summaries | IndexedDB cache | expires after 24 h, capped at 300 entries (oldest removed first) |
-| Saved chats (messages, sources trimmed to 700 characters) | `chrome.storage.local` | 12 per topic or article, 40 topics/articles at most (least recently used dropped) |
+| Saved chats (messages; cited sources trimmed to 700 characters, uncited ones without text) | `chrome.storage.local` | 12 per topic or article, 40 topics/articles at most, and storage kept under 8 MB (least recently used dropped) |
 | Search indexes | memory only | rebuilt as needed |
 
 The settings page shows current usage and has a button to clear the cache.
@@ -89,7 +89,13 @@ xcrun safari-web-extension-converter . --project-location ../wiki-ai-safari --ap
 ```
 Open the generated Xcode project, choose your Apple ID team under *Signing & Capabilities*, and run it. Then enable it in Safari → Settings → Extensions and allow it on wikipedia.org. Requires Safari 17.4+.
 
-The key is stored only in the browser's extension storage.
+The key is stored only in the browser's extension storage. Plain `http://` endpoints are accepted only on this computer or the local network.
+
+### Chrome Web Store build
+```bash
+scripts/package.sh --store
+```
+This writes `dist/wiki-ai-<version>-store.zip` (manifest at the root, no tester guide). The listing text is in `STORE_LISTING.md`; the privacy policy is `PRIVACY.md`.
 
 ## Testing
 
