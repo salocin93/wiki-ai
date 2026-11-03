@@ -37,6 +37,7 @@ content/page.js      the article on screen: links and their context, sections, f
 content/markdown.js  escape-first Markdown for answers; KaTeX is loaded on the first formula
 content/phrases.js   starter questions in several languages
 background/          service worker: runs the agent per question over a runtime port
+scripts/build.mjs    esbuild: bundles the ES modules into dist/wiki-ai/ (build, watch, release)
 lib/wiki.js          Wikipedia API: plain-text article split into sections → ~160-word chunks,
                      plus its tables, infobox and images (with Wikimedia Commons details);
                      REST summaries; cached 24 h in IndexedDB
@@ -83,34 +84,43 @@ Prompt budgets per model are in `lib/settings.js` (`contextFor`): 32k tokens for
 ## Install
 
 ### Chrome
-1. `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick this folder.
-2. Open the extension's **Options** and pick where answers come from:
+1. Build it (Node 20 or later):
+   ```bash
+   npm install
+   npm run build      # or: npm run watch, to rebuild on every save
+   ```
+   This writes the extension to `dist/wiki-ai/`. The sources are ES modules, which esbuild bundles into one script each for the service worker, the sidebar and the settings page (not minified, with source maps in development builds).
+2. `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick `dist/wiki-ai/`. After a rebuild, press the extension's reload button (and reload the Wikipedia tab). The folder stays the same whatever the version number, so you only load it once.
+3. Open the extension's **Options** and pick where answers come from:
    - **Google Gemini**: paste a free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
    - **Other provider**: enter the endpoint address and key under **Advanced connection**.
-3. Click **Test connection** (for your own server, allow Wiki AI to reach it when the browser asks), then **Save**.
+4. Click **Test connection** (for your own server, allow Wiki AI to reach it when the browser asks), then **Save**.
 
 ### Safari
 ```bash
-xcrun safari-web-extension-converter . --project-location ../wiki-ai-safari --app-name "Wiki AI" --macos-only
+npm run build
+xcrun safari-web-extension-converter dist/wiki-ai --project-location ../wiki-ai-safari --app-name "Wiki AI" --macos-only
 ```
 Open the generated Xcode project, choose your Apple ID team under *Signing & Capabilities*, and run it. Then enable it in Safari → Settings → Extensions and allow it on wikipedia.org. Requires Safari 17.4+.
 
 The key is stored only in the browser's extension storage. Plain `http://` endpoints are accepted only on this computer or the local network.
 
-### Chrome Web Store build
+### Packages
 ```bash
-scripts/package.sh --store
+npm run package          # dist/wiki-ai-<version>.zip, for testers (one wiki-ai folder, with TESTING.md)
+npm run package:store    # dist/wiki-ai-<version>-store.zip, for the Chrome Web Store (manifest at the root)
 ```
-This writes `dist/wiki-ai-<version>-store.zip` (manifest at the root, no tester guide). The listing text is in `STORE_LISTING.md`; the privacy policy is `PRIVACY.md`.
+Each makes a release build (no source maps) in a temporary folder, so `dist/wiki-ai/` and a running `npm run watch` are left alone. Older zips stay in `dist/`. The listing text is in `STORE_LISTING.md`; the privacy policy is `PRIVACY.md`.
 
 ## Testing
 
-**Unit tests and lint** (no network, no model; also run on every push by GitHub Actions):
+**Unit tests, lint, types and build** (no network, no model; also run on every push by GitHub Actions):
 ```bash
 npm install
 npm test
 npm run lint
-npm run typecheck   # JSDoc types, with the shared records in types/
+npm run typecheck   # JSDoc types across the modules, with the shared records in types/
+npm run build
 ```
 
 **Agent against the real model, from the terminal:**
@@ -139,10 +149,11 @@ node test/cluster-cli.mjs "House of Oldenburg" [model] "How is the House of Olde
 
 **Sidebar UI without installing the extension** (real Wikipedia retrieval, scripted fake model, no key):
 ```bash
-mkdir -p test/fixtures && curl -s https://en.wikipedia.org/wiki/Ada_Lovelace | sed 's|<head>|<head><base href="https://en.wikipedia.org/">|; s|</body>|<script src="http://127.0.0.1:8765/test/harness.js"></script></body>|' > test/fixtures/ada.html
+mkdir -p test/fixtures && curl -s https://en.wikipedia.org/wiki/Ada_Lovelace | sed 's|<head>|<head><base href="https://en.wikipedia.org/">|; s|</body>|<script src="http://127.0.0.1:8765/dist/harness.js"></script></body>|' > test/fixtures/ada.html
+npm run build            # also bundles the harness to dist/harness.js
 python3 -m http.server 8765 --bind 127.0.0.1
 ```
-Then open http://127.0.0.1:8765/test/fixtures/ada.html.
+Then open http://127.0.0.1:8765/test/fixtures/ada.html. With `npm run watch` running, a page reload picks up your changes.
 
 ## Known limits
 

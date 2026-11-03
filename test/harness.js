@@ -1,22 +1,18 @@
 // Loads the sidebar into a normal Wikipedia tab without installing the extension, for UI testing.
-// Serve the repo first:  python3 -m http.server 8765 --bind 127.0.0.1
+// Build it (npm run build, which writes dist/harness.js), then serve the repo:  python3 -m http.server 8765 --bind 127.0.0.1
 // The agent runs in the page with real Wikipedia retrieval and a scripted fake model (no API key involved).
+import { agent } from '../lib/agent.js';
+import { appSettings } from '../lib/settings.js';
+import { cluster } from '../lib/cluster.js';
+import { llm } from '../lib/llm.js';
+import { topics } from '../lib/topics.js';
+
 (async () => {
   const BASE = location.hostname.endsWith('wikipedia.org') ? 'http://localhost:8765/' : location.origin + '/';
-  const load = (src) =>
-    new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = BASE + src;
-      s.onload = resolve;
-      s.onerror = reject;
-      document.head.appendChild(s);
-    });
-  for (const f of ['lib/settings.js', 'lib/text.js', 'lib/storage.js', 'lib/sections.js', 'lib/cache.js', 'lib/bm25.js', 'lib/tables.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/grounding.js', 'lib/prompt.js', 'lib/agent.js', 'lib/topics.js', 'lib/conversations.js', 'lib/cluster.js', 'content/markdown.js', 'content/page.js', 'content/phrases.js', 'content/map.js']) await load(f);
-  const W = globalThis.WikiAI;
-  const settings = { ...W.settings.DEFAULTS, model: 'fake-model' };
+  const settings = { ...appSettings.DEFAULTS, model: 'fake-model' };
 
   // Fake model: searches the article, opens one linked article, then answers citing what it got.
-  W.llm.chat = async ({ messages, tools, onUpdate }) => {
+  llm.chat = async ({ messages, tools, onUpdate }) => {
     // Citation check: a second or so, then calls the first statement unsupported, to show the underline.
     if (!tools && messages[0].content.startsWith('You check whether Wikipedia passages')) {
       await new Promise((r) => setTimeout(r, 1200));
@@ -77,11 +73,11 @@
       id: 'wikiai-harness',
       getURL: (p) => BASE + p,
       sendMessage: async (msg) => {
-        if (msg.type === 'getSettings') return { hasKey: true, recipient: 'the scripted test model', privacyUrl: W.settings.PRIVACY_URL, noticeSeen: !!window.__wikiaiNoticeSeen, verifyCitations: settings.verifyCitations };
+        if (msg.type === 'getSettings') return { hasKey: true, recipient: 'the scripted test model', privacyUrl: appSettings.PRIVACY_URL, noticeSeen: !!window.__wikiaiNoticeSeen, verifyCitations: settings.verifyCitations };
         if (msg.type === 'setVerifyCitations') return { result: (settings.verifyCitations = msg.on) };
         if (msg.type === 'privacyNoticeSeen') return { result: (window.__wikiaiNoticeSeen = true) };
         try {
-          return { result: await W.topics.handle(msg) };
+          return { result: await topics.handle(msg) };
         } catch (e) {
           return { error: e.message };
         }
@@ -99,16 +95,16 @@
             window.__wikiaiLastPage = msg.page; // for inspecting what the sidebar sends
             if (msg.type === 'buildTopic') {
               ctrl = new AbortController();
-              return W.cluster
+              return cluster
                 .build({ settings, page: msg.page, emit, signal: ctrl.signal })
                 .then((topic) => emit({ type: 'topicBuilt', topic }))
                 .catch((e) => emit({ type: 'topicError', message: e.message }));
             }
             ctrl = new AbortController();
             const signal = ctrl.signal;
-            W.topics
+            topics
               .get(msg.topicId)
-              .then((topic) => W.agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit, signal }))
+              .then((topic) => agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit, signal }))
               .catch((e) => (signal.aborted ? emit({ type: 'done', stopped: true }) : emit({ type: 'error', message: e.message })));
           },
         };
@@ -116,5 +112,6 @@
     },
   };
   window.__wikiaiSend = (msg) => listeners.forEach((fn) => fn(msg));
-  await load('content/content.js');
+  // The panel starts on import, so only once the fakes above are in place.
+  await import('../content/content.js');
 })();

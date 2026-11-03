@@ -1,6 +1,5 @@
-// Globals the extension's scripts share. There is no bundler: each file adds itself to globalThis.WikiAI, and
-// chrome.* comes from the browser. The shapes of the data passed around are in data.d.ts.
-declare var WikiAI: any;
+// Globals from the browser that the scripts use. The modules import each other; chrome.* and KaTeX (loaded on
+// demand) are globals. The shapes of the data passed around are in data.d.ts.
 declare var chrome: any;
 declare var katex: any;
 declare function importScripts(...urls: string[]): void;

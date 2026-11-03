@@ -1,11 +1,7 @@
 // Checks lib/grounding.js on answers seen from real models: node test/grounding-check.mjs
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import assert from 'node:assert/strict';
 
-vm.runInThisContext(readFileSync(new URL('../lib/text.js', import.meta.url), 'utf8'), { filename: 'text.js' });
-vm.runInThisContext(readFileSync(new URL('../lib/grounding.js', import.meta.url), 'utf8'), { filename: 'grounding.js' });
-const G = globalThis.WikiAI.grounding;
+import { grounding as G } from '../lib/grounding.js';
 
 const seen = `[1] Ada Lovelace › Introduction
 Augusta Ada King, Countess of Lovelace (née Byron; 10 December 1815 – 27 November 1852) was an English mathematician. She married William King in 1835. King was made Earl of Lovelace in 1838. In 1843 she translated an article by Luigi Menabrea. Neoclassicism. Nobel Prize.

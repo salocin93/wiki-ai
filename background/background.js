@@ -1,24 +1,9 @@
 // Service worker: runs the agent (Wikipedia + LLM requests) on behalf of the sidebar in each tab.
-importScripts(
-  '../lib/settings.js',
-  '../lib/text.js',
-  '../lib/storage.js',
-  '../lib/sections.js',
-  '../lib/cache.js',
-  '../lib/bm25.js',
-  '../lib/tables.js',
-  '../lib/wiki.js',
-  '../lib/llm.js',
-  '../lib/links.js',
-  '../lib/grounding.js',
-  '../lib/prompt.js',
-  '../lib/agent.js',
-  '../lib/topics.js',
-  '../lib/conversations.js',
-  '../lib/cluster.js'
-);
-
-const W = globalThis.WikiAI;
+import { agent } from '../lib/agent.js';
+import { appSettings } from '../lib/settings.js';
+import { cluster } from '../lib/cluster.js';
+import { storage } from '../lib/storage.js';
+import { topics } from '../lib/topics.js';
 
 // Only the settings page and this extension's own pages may read or clear everything; content scripts (which
 // run inside Wikipedia's pages) get what the sidebar needs. Content scripts can't read extension storage at all
@@ -68,7 +53,7 @@ function wellFormed(msg) {
 const validPage = (page) => !!page && LANG.test(page.lang) && str(page.title, 500) && Array.isArray(page.links ?? []);
 
 async function loadSettings() {
-  const settings = await W.settings.load();
+  const settings = await appSettings.load();
   if (!settings.apiKey && settings.provider !== 'custom') { // a server of your own may not need one
     throw new Error('No API key set. Open the Wiki AI settings, pick where answers come from and paste the key.');
   }
@@ -123,7 +108,7 @@ chrome.runtime.onConnect.addListener((port) => {
       await whileBusy(async () => {
         try {
           const settings = await loadSettings();
-          const topic = await W.cluster.build({ settings, page: msg.page, emit, signal });
+          const topic = await cluster.build({ settings, page: msg.page, emit, signal });
           emit({ type: 'topicBuilt', topic });
         } catch (e) {
           emit({ type: 'topicError', message: signal.aborted ? 'Stopped.' : e.message || String(e) });
@@ -138,8 +123,8 @@ chrome.runtime.onConnect.addListener((port) => {
     await whileBusy(async () => {
       try {
         const settings = await loadSettings();
-        const topic = msg.topicId ? await W.topics.get(msg.topicId) : null;
-        await W.agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit, signal });
+        const topic = msg.topicId ? await topics.get(msg.topicId) : null;
+        await agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit, signal });
       } catch (e) {
         if (signal.aborted) emit({ type: 'done', stopped: true });
         else emit({ type: 'error', message: e.message || String(e) });
@@ -163,22 +148,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'openOptions') chrome.runtime.openOptionsPage();
   if (/^(topics|cache|conv|data|handoff):/.test(msg.type)) {
-    W.topics
+    topics
       .handle(msg)
       .then((result) => sendResponse({ result }))
       .catch((e) => sendResponse({ error: e.message || String(e) }));
     return true;
   }
   if (msg.type === 'getSettings') {
-    Promise.all([W.settings.load(), W.storage.get('privacyNoticeSeen')]).then(([s, seen]) =>
+    Promise.all([appSettings.load(), storage.get('privacyNoticeSeen')]).then(([s, seen]) =>
       sendResponse({
         model: s.model,
         fallbackModel: s.fallbackModel,
         hasKey: !!s.apiKey,
         answerLanguage: s.answerLanguage,
         verifyCitations: s.verifyCitations,
-        recipient: W.settings.recipient(s),
-        privacyUrl: W.settings.PRIVACY_URL,
+        recipient: appSettings.recipient(s),
+        privacyUrl: appSettings.PRIVACY_URL,
         noticeSeen: !!seen,
       })
     );
@@ -186,14 +171,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   // The panel's switch for the citation check, next to each answer's timing (the same setting as on the settings page).
   if (msg.type === 'setVerifyCitations') {
-    W.settings
+    appSettings
       .load()
-      .then((s) => W.settings.save({ ...s, verifyCitations: msg.on }))
+      .then((s) => appSettings.save({ ...s, verifyCitations: msg.on }))
       .then(() => sendResponse({ ok: true }), (e) => sendResponse({ error: e.message || String(e) }));
     return true;
   }
   if (msg.type === 'privacyNoticeSeen') {
-    W.storage.set('privacyNoticeSeen', true).then(() => sendResponse({}));
+    storage.set('privacyNoticeSeen', true).then(() => sendResponse({}));
     return true;
   }
 });
@@ -206,11 +191,11 @@ function sendToTab(tabId, msg) {
 // add a step (and raise the number) whenever the stored shape changes.
 const SCHEMA_VERSION = 1;
 async function migrate() {
-  const from = (await W.storage.get('schemaVersion')) || 0;
+  const from = (await storage.get('schemaVersion')) || 0;
   if (from >= SCHEMA_VERSION) return;
   // 1: a topic's chats are deleted with it; remove those left behind by topics deleted earlier.
-  if (from < 1) await W.topics.dropOrphanChats();
-  await W.storage.set('schemaVersion', SCHEMA_VERSION);
+  if (from < 1) await topics.dropOrphanChats();
+  await storage.set('schemaVersion', SCHEMA_VERSION);
 }
 
 // Where the content script runs (manifest.json): /wiki/ pages, the script variants of zh and sr ("/zh-hans/…"), and
@@ -219,7 +204,7 @@ const ARTICLE_PAGES = ['https://*.wikipedia.org/wiki/*', 'https://*.wikipedia.or
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   // New installs (e.g. a tester) start on the settings page to choose a model provider and paste a key.
-  if (reason === 'install' && !(await W.settings.load()).apiKey) chrome.runtime.openOptionsPage();
+  if (reason === 'install' && !(await appSettings.load()).apiKey) chrome.runtime.openOptionsPage();
   await migrate().catch((e) => console.warn('Wiki AI: storage update failed', e));
   chrome.contextMenus.create({
     id: 'wikiai-ask',

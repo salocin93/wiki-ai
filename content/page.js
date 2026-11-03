@@ -1,14 +1,15 @@
 // The Wikipedia article on screen: which page and revision it is, its sections and links, finding a cited passage in
-// it, and links back to Wikipedia. W.page is left unset where the panel doesn't belong (not an article, an edit or
+// it, and links back to Wikipedia. `pageDom` is null where the panel doesn't belong (not an article, an edit or
 // history view, an old revision). Used by the panel (content.js).
-(function (g) {
-  const W = (g.WikiAI = g.WikiAI || {});
+import { sectionNames } from '../lib/sections.js';
+import { textUtil } from '../lib/text.js';
 
+export const pageDom = (() => {
   const article = document.querySelector('#mw-content-text .mw-parser-output');
   // Only main-namespace articles as read (not edited, not their history); the Main Page is in that namespace but
   // is a portal of boxes.
   const body = document.body.classList;
-  if (!article || !body.contains('ns-0') || !body.contains('action-view') || body.contains('page-Main_Page')) return;
+  if (!article || !body.contains('ns-0') || !body.contains('action-view') || body.contains('page-Main_Page')) return null;
 
   // The revision on screen, from the page's inline config (the content script can't reach mw.config). An old
   // revision (opened from "Open the version quoted") is for reading only: the panel answers about the current one.
@@ -21,21 +22,21 @@
   };
   const pageRevid = revisionVar('wgRevisionId');
   const currentRevid = revisionVar('wgCurRevisionId');
-  if (pageRevid && currentRevid && pageRevid !== currentRevid) return;
+  if (pageRevid && currentRevid && pageRevid !== currentRevid) return null;
 
   const canonical = /** @type {HTMLLinkElement | null} */ (document.querySelector('link[rel=canonical]'))?.href || location.href;
   const pageUrl = new URL(canonical);
   const lang = pageUrl.hostname.split('.')[0];
   // "/wiki/Title", "/zh-hans/Title" or "/w/index.php?title=Title".
   const title = (pageUrl.searchParams.get('title') || decodeURIComponent(pageUrl.pathname.replace(/^\/[^/]+\//, ''))).replace(/_/g, ' ');
-  if (!title || title.startsWith('/')) return;
+  if (!title || title.startsWith('/')) return null;
 
   // ---------- Sections and links ----------
 
   let links = null; // collected once per page
 
   const NON_ARTICLE_NS = /^(File|Image|Help|Special|Wikipedia|Template|Category|Portal|Talk|Module|Draft|User|MediaWiki|Book|Media|WP|Template talk|User talk)(:)/i;
-  const isBackMatter = (name) => W.sections.isBackMatter(name); // references, external links, "See also", in many languages
+  const isBackMatter = (name) => sectionNames.isBackMatter(name); // references, external links, "See also", in many languages
   const SKIP_LINK_AREAS = '.reflist, .references, .mw-references-wrap, sup.reference, cite, .citation, .reference-text, .mw-editsection, .sistersitebox, .shortdescription, .navbar';
 
   const headingText = (h) => (h.querySelector('.mw-headline')?.textContent || h.textContent).replace(/\[edit\]$/, '').trim();
@@ -151,7 +152,7 @@
       const anchor = el.textContent.trim();
       if (anchor && anchor !== target && !entry.anchors.includes(anchor) && entry.anchors.length < 3) entry.anchors.push(anchor);
       let signal = linkSignal(el);
-      if (!signal && W.sections.isSeeAlso(section)) signal = { kind: 'seealso', context: `Listed under "${section}"` };
+      if (!signal && sectionNames.isSeeAlso(section)) signal = { kind: 'seealso', context: `Listed under "${section}"` };
       if (signal) {
         entry.signals.add(signal.kind);
         if (signal.box) entry.navboxes.add(signal.box);
@@ -346,9 +347,9 @@
   // Quoted Wikipedia text is CC BY-SA: name the source and the licence wherever it's shown.
   const LICENSE_URL = 'https://creativecommons.org/licenses/by-sa/4.0/';
   const licenseLine = (page, url) =>
-    `<div class="license">Text from <a href="${url}" target="_blank" rel="noopener noreferrer">${W.text.esc(page ? `Wikipedia: ${page}` : 'Wikipedia')}</a>, <a href="${LICENSE_URL}" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a></div>`;
+    `<div class="license">Text from <a href="${url}" target="_blank" rel="noopener noreferrer">${textUtil.esc(page ? `Wikipedia: ${page}` : 'Wikipedia')}</a>, <a href="${LICENSE_URL}" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a></div>`;
 
-  const articleUrl = (src) => W.text.articleUrl(src.lang, src.page);
+  const articleUrl = (src) => textUtil.articleUrl(src.lang, src.page);
 
   // The revision a passage was quoted from, so the link shows the text that was cited.
   const versionUrl = (src) => (src.revid ? `https://${src.lang}.wikipedia.org/w/index.php?oldid=${src.revid}` : articleUrl(src));
@@ -376,9 +377,9 @@
     return `${versionUrl(src)}${textFragment(src)}`;
   }
 
-  W.page = {
+  return {
     article, canonical, lang, title, revid: pageRevid,
     headings, headingText, sectionOf, visibleSection, isBackMatter, collectLinks, pageInfo,
     otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl,
   };
-})(globalThis);
+})();

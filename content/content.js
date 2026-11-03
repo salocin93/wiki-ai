@@ -1,14 +1,19 @@
 // Sidebar UI on Wikipedia articles: chat, clickable citations, "ask about this" on selected text.
+import { markdown } from './markdown.js';
+import { pageDom } from './page.js';
+import { phraseBook } from './phrases.js';
+import { textUtil } from '../lib/text.js';
+import { topicMap } from './map.js';
+
 (() => {
   if (window.__wikiai) return;
   window.__wikiai = true;
 
-  const W = globalThis.WikiAI;
   // The page itself (identity, sections, links, citations in it) is read by page.js; nothing to do where it
   // found no article.
-  if (!W.page) return;
+  if (!pageDom) return;
   const { article, canonical, lang, title, headings, headingText, sectionOf, visibleSection, isBackMatter, collectLinks, pageInfo,
-    otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl } = W.page;
+    otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl } = pageDom;
   const PANEL_WIDTH = 420;
 
   const state = {
@@ -122,7 +127,7 @@
   // again. Its fonts: Chrome ignores @font-face inside a shadow root, so the page loads them too (its rules only
   // touch .katex elements, which Wikipedia doesn't use). If it can't load, formulas stay as text.
   let katexLoading = null;
-  W.markdown.onMath = () => {
+  markdown.onMath = () => {
     katexLoading ||= import(chrome.runtime.getURL('vendor/katex/katex.min.js'))
       .then(() => {
         if (!globalThis.katex) throw new Error('KaTeX did not load');
@@ -321,11 +326,11 @@
     renderTopic();
   }
   // l: the Wikipedia the article is on; a topic's articles can be in another language than this page.
-  const wikiUrl = (t, l = lang) => W.text.articleUrl(l, t);
+  const wikiUrl = (t, l = lang) => textUtil.articleUrl(l, t);
 
   const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
-  const esc = (v) => W.text.esc(v);
-  const normQ = (q) => W.text.plain(q).toLowerCase().replace(/\s+/g, ' ').trim();
+  const esc = (v) => textUtil.esc(v);
+  const normQ = (q) => textUtil.plain(q).toLowerCase().replace(/\s+/g, ' ').trim();
   const DOC_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>`;
   const CHAT_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>`;
   const MAP_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="5" r="2"/><circle cx="20" cy="5" r="2"/><circle cx="4" cy="19" r="2"/><circle cx="20" cy="19" r="2"/><path d="M9.6 10.2L5.5 6.4M14.4 10.2l4.1-3.8M9.6 13.8l-4.1 3.8M14.4 13.8l4.1 3.8"/></svg>`;
@@ -414,7 +419,7 @@
     for (const c of byRecent) {
       c.messages.forEach((m, i) => {
         if (m.role !== 'assistant' || !m.followups?.length) return;
-        const items = m.followups.map((q) => W.text.plain(q)).filter((q) => !asked.has(normQ(q)) && !seen.has(normQ(q)));
+        const items = m.followups.map((q) => textUtil.plain(q)).filter((q) => !asked.has(normQ(q)) && !seen.has(normQ(q)));
         items.forEach((q) => seen.add(normQ(q)));
         if (items.length) groups.push({ convId: c.id, from: c.messages[i - 1]?.content || c.title, items });
       });
@@ -580,13 +585,13 @@
       return;
     }
     mapView.innerHTML = '<div class="map-host"></div>';
-    unmountMap = W.topicMap.mount(mapView.querySelector('.map-host'), { ...mapOptions(), onExpand: showMap });
+    unmountMap = topicMap.mount(mapView.querySelector('.map-host'), { ...mapOptions(), onExpand: showMap });
   }
 
   // The large version over the article area, next to the sidebar.
   function showMap() {
     if (!state.topic) return;
-    closeMap = W.topicMap.open({ ...mapOptions(), rightInset: state.open ? PANEL_WIDTH : 0 });
+    closeMap = topicMap.open({ ...mapOptions(), rightInset: state.open ? PANEL_WIDTH : 0 });
   }
 
   // ---------- Chats ----------
@@ -846,7 +851,7 @@
       applyPendingChat();
       return;
     }
-    const url = W.text.articleUrl(l, t);
+    const url = textUtil.articleUrl(l, t);
     const list = (await handoffStore.get()).filter((h) => Date.now() - h.at < HANDOFF_MS).slice(-4);
     list.push({ path: pathOf(url), view: 'chat', chat: id, scope, at: Date.now() });
     await handoffStore.set(list);
@@ -861,7 +866,7 @@
     const choice = state.answerLanguage || 'browser';
     const browser = (navigator.language || 'en').split('-')[0].toLowerCase();
     const code = choice === 'article' ? lang : choice === 'browser' || choice === 'question' ? browser : choice;
-    return W.phrases.get(code);
+    return phraseBook.get(code);
   }
 
   async function loadLanguage() {
@@ -1017,7 +1022,7 @@
     liveEl.textContent = '';
     setTimeout(() => (liveEl.textContent = text), 50);
   }
-  const spoken = (md) => W.text.plain(md || '').replace(W.text.CITE, '').replace(/[#*$]/g, '').slice(0, 1500);
+  const spoken = (md) => textUtil.plain(md || '').replace(textUtil.CITE, '').replace(/[#*$]/g, '').slice(0, 1500);
 
   // A new question goes to the top, and stays there as its answer streams in, so the answer is read from its start.
   function questionTop() {
@@ -1052,7 +1057,7 @@
       if (!groups.has(s.page)) groups.set(s.page, []);
       groups.get(s.page).push(s);
     }
-    const esc = W.text.esc;
+    const esc = textUtil.esc;
     return `<div class="sources" role="group" aria-label="Sources (arrow keys move between them)">${[...groups]
       .map(([page, items]) => {
         const first = items[0];
@@ -1088,34 +1093,34 @@
 
   function renderMessage(m, i) {
     if (m.role === 'user') {
-      const quote = m.quote ? `<blockquote>${W.text.esc(m.quote.text.slice(0, 280))}${m.quote.text.length > 280 ? '…' : ''}</blockquote>` : '';
-      return `<div class="msg user">${quote}<div class="bubble">${W.text.esc(m.content)}</div></div>`;
+      const quote = m.quote ? `<blockquote>${textUtil.esc(m.quote.text.slice(0, 280))}${m.quote.text.length > 280 ? '…' : ''}</blockquote>` : '';
+      return `<div class="msg user">${quote}<div class="bubble">${textUtil.esc(m.content)}</div></div>`;
     }
     const steps = m.steps?.length
-      ? `<details class="steps"${m.stepsOpen ?? m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${W.text.esc(s)}</li>`).join('')}</ul></details>`
+      ? `<details class="steps"${m.stepsOpen ?? m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${textUtil.esc(s)}</li>`).join('')}</ul></details>`
       : '';
-    const reasoning = m.reasoning ? `<details class="reasoning"${m.reasoningOpen ? ' open' : ''}><summary>Thinking</summary><div>${W.text.esc(m.reasoning)}</div></details>` : '';
+    const reasoning = m.reasoning ? `<details class="reasoning"${m.reasoningOpen ? ' open' : ''}><summary>Thinking</summary><div>${textUtil.esc(m.reasoning)}</div></details>` : '';
     const flagged = m.pending ? [] : m.unsupported || [];
     // Sources are numbered across the chat; each answer shows its own as 1, 2, 3… in the order it cites them.
-    const cited = m.pending ? [] : W.text.citedNumbers(m.content || '').filter(known);
+    const cited = m.pending ? [] : textUtil.citedNumbers(m.content || '').filter(known);
     const labelOf = new Map(cited.map((n, k) => [n, k + 1]));
     const attrs = (n) => ({ ...citeAttrs(n), label: labelOf.get(n) });
-    const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, attrs, flagged)}</div>` : '';
+    const body = m.content ? `<div class="answer">${markdown.render(m.content, known, attrs, flagged)}</div>` : '';
     const grounding = flagged.length
       ? `<div class="grounding-note">${flagged.some((f) => f.kind !== 'uncited') ? "Underlined parts couldn't be matched to the Wikipedia sources." : 'Parts underlined in grey have no source number.'} Hover over them to see why.</div>`
       : '';
-    const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.text.esc(m.status || 'Thinking')}${m.words ? ` <span class="words">· ${m.words} words</span>` : ''}</div>` : '';
+    const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${textUtil.esc(m.status || 'Thinking')}${m.words ? ` <span class="words">· ${m.words} words</span>` : ''}</div>` : '';
     const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
     const error = m.error
-      ? `<div class="error">${W.text.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}${m.model ? '' : debug}</div>`
+      ? `<div class="error">${textUtil.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}${m.model ? '' : debug}</div>`
       : '';
     const sources = cited.length ? renderSourceGroups(cited, labelOf) : '';
     const figures = cited.length ? renderFigures(cited, labelOf) : '';
-    const meta = m.model && !m.pending ? `<div class="meta">${W.text.esc(m.model)}${timingLine(m)}${debug}</div>` : '';
+    const meta = m.model && !m.pending ? `<div class="meta">${textUtil.esc(m.model)}${timingLine(m)}${debug}</div>` : '';
     const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
     const followups = !m.pending && m.followups?.length
       ? `<div class="followups"><div class="fu-label">Ask next</div>${m.followups
-          .map((q) => W.text.plain(q))
+          .map((q) => textUtil.plain(q))
           .map((q) =>
             askedHere.has(normQ(q))
               ? `<div class="followup asked"><span aria-hidden="true">✓</span> ${esc(q)}</div>`
@@ -1128,7 +1133,7 @@
 
   // Images the answer cites, with their caption and credit (Commons licences ask for the author and licence).
   function renderFigures(numbers, labelOf) {
-    const esc = W.text.esc;
+    const esc = textUtil.esc;
     const figs = numbers.map((n) => conv().sources[n - 1]).filter((s) => s?.figure?.thumb).slice(0, 3);
     if (!figs.length) return '';
     return `<div class="answer-figures">${figs
@@ -1157,7 +1162,7 @@
     state.quote = quote;
     quoteEl.hidden = !quote;
     if (quote) {
-      quoteEl.innerHTML = `<span class="label">Selected text${quote.section ? ` · ${W.text.esc(quote.section)}` : ''}</span><span class="text">${W.text.esc(quote.text.slice(0, 200))}${quote.text.length > 200 ? '…' : ''}</span><button type="button" class="icon clear-quote" aria-label="Remove selection">×</button>`;
+      quoteEl.innerHTML = `<span class="label">Selected text${quote.section ? ` · ${textUtil.esc(quote.section)}` : ''}</span><span class="text">${textUtil.esc(quote.text.slice(0, 200))}${quote.text.length > 200 ? '…' : ''}</span><button type="button" class="icon clear-quote" aria-label="Remove selection">×</button>`;
     }
     renderTopic();
   }
@@ -1327,22 +1332,22 @@
     previewEl.hidden = false;
     previewEl.innerHTML = `
       <div class="preview-head c${pageColor(src.page)}">
-        <span class="num">${W.text.esc(label)}</span>
+        <span class="num">${textUtil.esc(label)}</span>
         <span class="preview-title">
-          <span class="page-name">${W.text.esc(src.page)}</span>
-          <span class="section-name">${W.text.esc(src.section)}</span>
+          <span class="page-name">${textUtil.esc(src.page)}</span>
+          <span class="section-name">${textUtil.esc(src.section)}</span>
         </span>
         <button class="icon close-preview" aria-label="Close preview">×</button>
       </div>
-      ${src.figure?.thumb ? `<img class="preview-img" src="${W.text.esc(src.figure.thumb)}" alt="">` : ''}
+      ${src.figure?.thumb ? `<img class="preview-img" src="${textUtil.esc(src.figure.thumb)}" alt="">` : ''}
       ${isHere(src) && otherRevision(src) ? '<p class="preview-note">Quoted from another version of this article. The passage may have changed since, so it isn\'t highlighted on the page.</p>' : ''}
-      <div class="preview-text">${W.text.esc(src.text)}</div>
+      <div class="preview-text">${textUtil.esc(src.text)}</div>
       ${licenseLine(src.page, articleUrl(src))}
       <div class="preview-actions">
         ${
           isHere(src) && !otherRevision(src)
             ? '<button class="link show-in-page">Show in article</button>'
-            : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener noreferrer">${isHere(src) ? 'Open the version quoted ↗' : `Open “${W.text.esc(src.page)}” ↗`}</a>`
+            : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener noreferrer">${isHere(src) ? 'Open the version quoted ↗' : `Open “${textUtil.esc(src.page)}” ↗`}</a>`
         }
       </div>`;
     previewEl.dataset.n = src.n;

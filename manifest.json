@@ -50,12 +50,6 @@
         "https://*.wikipedia.org/w/index.php*"
       ],
       "js": [
-        "lib/text.js",
-        "lib/sections.js",
-        "content/markdown.js",
-        "content/page.js",
-        "content/phrases.js",
-        "content/map.js",
         "content/content.js"
       ],
       "run_at": "document_idle"

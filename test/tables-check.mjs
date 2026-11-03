@@ -1,10 +1,7 @@
 // Checks lib/tables.js (tables, infoboxes, figures) on hand-written article HTML: node test/tables-check.mjs
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import assert from 'node:assert/strict';
 
-vm.runInThisContext(readFileSync(new URL('../lib/tables.js', import.meta.url), 'utf8'), { filename: 'tables.js' });
-const T = globalThis.WikiAI.tables;
+import { htmlTables as T } from '../lib/tables.js';
 
 const html = `
 <table class="infobox vcard"><tbody>
