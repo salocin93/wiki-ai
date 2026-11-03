@@ -99,9 +99,11 @@ This writes `dist/wiki-ai-<version>-store.zip` (manifest at the root, no tester 
 
 ## Testing
 
-**Unit tests and source checks** (no network, no model; also run on every push by GitHub Actions):
+**Unit tests and lint** (no network, no model; also run on every push by GitHub Actions):
 ```bash
+npm install
 npm test
+npm run lint
 ```
 
 **Agent against the real model, from the terminal:**

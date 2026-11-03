@@ -11,6 +11,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
       - name: Syntax
         run: for f in background/*.js content/*.js lib/*.js options/*.js test/*.js test/*.mjs; do node --check "$f"; done
       - name: Tests
