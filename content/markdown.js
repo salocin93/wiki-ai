@@ -26,10 +26,11 @@
         })
         .join('');
     });
-    return s.replace(/(\d+)/g, (_, i) => `<span class="unsupported" title="${esc(flagNotes[i] || '')}">`).replace(//g, '</span>');
+    return s.replace(/(\d+)/g, (_, i) => `<span class="unsupported${flagKinds[i] === 'uncited' ? ' uncited' : ''}" title="${esc(flagNotes[i] || '')}">`).replace(//g, '</span>');
   }
 
   let flagNotes = [];
+  let flagKinds = [];
 
   // Formulas: $$…$$ and \[…\] on their own, $…$ and \(…\) inline. An inline $ pair needs no space just inside
   // it and no digit right after, so prices ("$5 and $10") stay text. Each becomes a placeholder until the end.
@@ -53,9 +54,10 @@
   }
 
   // attrs(n) may return {title, className, label} for citation n; label is the number shown (default n).
-  // flagged: [{text, note}], sentences to underline as not matched to the sources.
+  // flagged: [{text, note, kind}], sentences to underline as not matched to the sources ('uncited': no source given).
   function render(src, known = () => true, attrs, flagged = []) {
     flagNotes = flagged.map((f) => f.note);
+    flagKinds = flagged.map((f) => f.kind);
     flagged.forEach((f, i) => {
       if (!f.text.includes('\n')) src = src.replace(f.text, () => `${i}${f.text}`);
     });

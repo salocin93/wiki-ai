@@ -11,7 +11,7 @@
       s.onerror = reject;
       document.head.appendChild(s);
     });
-  for (const f of ['lib/settings.js', 'lib/cache.js', 'lib/bm25.js', 'lib/tables.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/grounding.js', 'lib/agent.js', 'lib/topics.js', 'lib/conversations.js', 'lib/cluster.js', 'vendor/katex/katex.min.js', 'content/markdown.js', 'content/map.js']) await load(f);
+  for (const f of ['lib/settings.js', 'lib/storage.js', 'lib/cache.js', 'lib/bm25.js', 'lib/tables.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/grounding.js', 'lib/agent.js', 'lib/topics.js', 'lib/conversations.js', 'lib/cluster.js', 'vendor/katex/katex.min.js', 'content/markdown.js', 'content/map.js']) await load(f);
   const W = globalThis.WikiAI;
   const settings = { ...W.settings.DEFAULTS, model: 'fake-model' };
 
@@ -72,6 +72,8 @@
       id: 'wikiai-harness',
       getURL: (p) => BASE + p,
       sendMessage: async (msg) => {
+        if (msg.type === 'getSettings') return { hasKey: true, recipient: 'the scripted test model', privacyUrl: W.settings.PRIVACY_URL, noticeSeen: !!window.__wikiaiNoticeSeen };
+        if (msg.type === 'privacyNoticeSeen') return { result: (window.__wikiaiNoticeSeen = true) };
         try {
           return { result: await W.topics.handle(msg) };
         } catch (e) {

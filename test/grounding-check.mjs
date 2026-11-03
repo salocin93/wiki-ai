@@ -43,8 +43,32 @@ const cases = [
   ['Later, Brazilian ships joined in [2].', ['Brazilian'], 'nationality with no country in the sources'],
 ];
 
+// With the passages by number, each sentence is checked against the passages it cites: "kind missing,details".
+const [p1, p2] = seen.split(/\n(?=\[2\])/).map((t) => t.replace(/^\[\d\] /, ''));
+const passages = new Map([[1, p1], [2, p2]]);
+const kinds = (answer) => G.check(answer, seen, { exempt, passages }).map((f) => `${f.kind} ${f.missing.join(',')}`.trim());
+cases.push(
+  ['She married William King in 1835 [1].', [], 'cited passage says it', { passages }],
+  ['She married William King in 1835 [2].', ['miscited 1835,William,King'], 'cited to a passage that does not say it', { passages }],
+  ['Reagan was elected in 1980 [1][2].', [], 'one of two cited passages says it', { passages }],
+  ['She married William King in 1835. King became Earl of Lovelace in 1838 [1].', [], 'covered by the next citation on its line', { passages }],
+  ['She married William King in 1835.', ['uncited'], 'no citation anywhere on the line', { passages }],
+  ['She married William King in 1835 [9].', ['uncited'], 'a number that is no source counts as none', { passages }],
+);
+
 let failed = 0;
 for (const [answer, expected, name, opts] of cases) {
+  if (opts?.passages) {
+    const got = kinds(answer);
+    try {
+      assert.deepEqual(got, expected);
+      console.log(`ok   ${name}`);
+    } catch {
+      failed++;
+      console.log(`FAIL ${name}: got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`);
+    }
+    continue;
+  }
   try {
     assert.deepEqual(flags(answer, opts), expected);
     console.log(`ok   ${name}`);
