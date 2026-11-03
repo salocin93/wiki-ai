@@ -112,6 +112,7 @@ import { topics } from '../lib/topics.js';
     },
   };
   window.__wikiaiSend = (msg) => listeners.forEach((fn) => fn(msg));
+  window.__wikiaiTopics = topics; // to set up a topic state by hand (e.g. one open that doesn't contain this article)
   // The panel starts on import, so only once the fakes above are in place.
   await import('../content/content.js');
 })();

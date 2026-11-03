@@ -1,5 +1,7 @@
 # Wiki AI: Chrome Web Store readiness
 
+> **Snapshot from the pre-publication review.** Reviewed commit `db7f2d6` (2026-11-02 02:22 CET, version 0.3.0). Written on 2026-11-03, 02:57–03:37 CET, and added in commit `c63037a`. It describes the code as it was then, and line numbers refer to that commit. For what was fixed since, and in which pull request, see [REPORT.md](REPORT.md).
+
 Checked against the Chrome Web Store program policies (single purpose, permissions, remote code, user data and Limited Use, listing quality) for commit `db7f2d6`. Policy wording changes; re-read the current policy pages before submitting.
 
 Legend: ❌ blocker (likely rejection) · ⚠️ likely reviewer question or a weak spot · ✅ ready.

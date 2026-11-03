@@ -1,6 +1,8 @@
 # Wiki AI: architecture
 
-Snapshot of commit `db7f2d6` (version 0.3.0), written for the pre-publication review. Line numbers refer to that commit. Since then the files became ES modules bundled by esbuild (the two Platform points below are current), and page reading and highlighting moved to `content/page.js`, the phrase tables to `content/phrases.js`, the system prompt to `lib/prompt.js` and shared helpers to `lib/text.js` (see `ACTION_PLAN.md`).
+> **Snapshot from the pre-publication review.** Reviewed commit `db7f2d6` (2026-11-02 02:22 CET, version 0.3.0). Written on 2026-11-03, 02:57–03:37 CET, and added in commit `c63037a`. It describes the code as it was then, and line numbers refer to that commit. For what was fixed since, and in which pull request, see [REPORT.md](REPORT.md).
+
+Plain JavaScript at the time, with no build step or package manager. The extension has since moved to ES modules bundled with esbuild (PR #5); the README describes the current layout.
 
 ## Platform
 

@@ -1,6 +1,8 @@
 # Wiki AI: code review
 
-Commit `db7f2d6`, version 0.3.0, reviewed 2026-11-03. Read-only review: no source file was changed.
+> **Snapshot from the pre-publication review.** Reviewed commit `db7f2d6` (2026-11-02 02:22 CET, version 0.3.0). Written on 2026-11-03, 02:57–03:37 CET, and added in commit `c63037a`. It describes the code as it was then, and line numbers refer to that commit. For what was fixed since, and in which pull request, see [REPORT.md](REPORT.md).
+
+Read-only review: no source file was changed.
 
 **Status.** Confirmed means the defect follows from the code as written (and, where noted, from the QA evidence). Suspected means plausible but not reproduced; the finding says what would confirm it.
 

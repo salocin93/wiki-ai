@@ -386,7 +386,7 @@ import { topicMap } from './map.js';
     if (!t && !state.building) {
       parts.push(`
         <div class="topic-head empty">
-          <p>Questions now use <strong>${esc(title)}</strong> and the articles it links to. A topic cluster lets you explore a subject across many articles: the AI groups this article's most relevant links into themes, and answers search all of them.</p>
+          <p>A topic cluster lets you explore a subject across many articles: the AI groups this article's most relevant links into themes, and answers search all of them. Until you build one, questions use <strong>${esc(title)}</strong> and the articles it links to.</p>
           <button class="primary build-topic">Build topic cluster</button>
         </div>`);
       parts.push(savedTopicsSection());
@@ -961,7 +961,7 @@ import { topicMap } from './map.js';
           ${t ? topicCard(t) : articleCard()}
           <div class="fu-label">Try asking</div>
           ${(t ? topicSuggestions(t) : starterSuggestions()).map((q) => `<button class="suggestion">${esc(q)}</button>`).join('')}
-          ${state.topic || state.building || isDisambiguation() ? '' : '<p class="why">Want to explore this subject across many articles? <button class="link build-topic">Build a topic cluster</button></p>'}
+          ${t || state.building || isDisambiguation() ? '' : '<p class="why">Want to explore this subject across many articles? <button class="link build-topic">Build a topic cluster</button></p>'}
           ${open ? `<p class="why">${open} suggested question${open > 1 ? 's' : ''} from earlier chats are waiting in <button class="link go-topic">Topic › Questions to explore</button>.</p>` : ''}
         </div>`;
       return;
