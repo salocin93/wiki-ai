@@ -361,7 +361,7 @@ button.primary { padding: 8px 14px; border-radius: 8px; border: none; background
 /* Map tab */
 .view-map { position: relative; }
 .map-host { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-.map-empty { padding: 20px 16px; color: var(--muted); font-size: 13px; }
+.map-empty { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 16px; color: var(--muted); font-size: 13px; } /* the saved topics can be longer than the panel */
 .map-inline .map-head { flex-wrap: wrap; gap: 6px 10px; padding: 10px 12px; }
 .map-inline .map-title { max-width: none; flex: 1; }
 .map-inline .legend { flex-basis: 100%; justify-content: flex-start; order: 3; }

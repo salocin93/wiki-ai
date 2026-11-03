@@ -225,3 +225,14 @@ test('topics: deleting a topic deletes its chats', async () => {
   assert.equal((await conversations.list('topic:u1')).length, 0);
   assert.equal(await topics.get('u1'), null);
 });
+
+test('topics: a closed topic stays closed on its articles until opened again', async () => {
+  await topics.save({ id: 'u2', name: 'T', lang: 'en', seed: 'A', pages: [{ title: 'A' }], facets: [], edges: [] });
+  await topics.setActive('u2');
+  assert.equal((await topics.forPage('en', 'A'))?.id, 'u2');
+  await topics.setActive(null, 'u2');
+  assert.equal(await topics.forPage('en', 'A'), null, 'closing it hides it on its own article');
+  await topics.setActive('u2');
+  assert.equal((await topics.forPage('en', 'A'))?.id, 'u2', 'opening it again brings it back');
+  await topics.remove('u2');
+});

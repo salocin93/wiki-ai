@@ -39,7 +39,7 @@ function wellFormed(msg) {
     case 'conv:save': return str(msg.scope) && !!msg.conv && str(msg.conv.id, 100) && Array.isArray(msg.conv.messages) && (msg.conv.sources == null || Array.isArray(msg.conv.sources));
     case 'conv:delete': return str(msg.scope) && str(msg.id, 100);
     case 'topics:forPage': return LANG.test(msg.lang) && str(msg.title, 500);
-    case 'topics:setActive': return msg.id == null || str(msg.id, 100);
+    case 'topics:setActive': return (msg.id == null || str(msg.id, 100)) && (msg.close == null || str(msg.close, 100));
     case 'topics:delete': return str(msg.id, 100);
     case 'topics:addPage':
     case 'topics:removePage': return str(msg.id, 100) && str(msg.title, 500);

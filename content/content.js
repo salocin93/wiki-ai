@@ -617,12 +617,15 @@ import { topicMap } from './map.js';
     } catch {
       // worker unavailable: start with no saved chats
     }
-    // Keep a conversation that is still answering, even if it belongs elsewhere.
+    // Keep a conversation that is still answering, even if it belongs elsewhere, so its answer has somewhere to go;
+    // but open one of this scope's (an article chat answering while its topic finished building isn't the topic's).
     const running = state.request && !saved.some((c) => c.id === state.request.id) ? [state.request] : [];
     state.convs = [...saved, ...running];
-    const latest = [...state.convs].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0];
-    if (!latest) state.convs.push(newConv());
-    state.activeId = (latest || state.convs[0]).id;
+    const own = state.convs.filter((c) => !c.scope || c.scope === state.scope);
+    const latest = own.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0];
+    const open = latest || newConv();
+    if (!latest) state.convs.push(open);
+    state.activeId = open.id;
     renderChatBar();
     render();
     if (state.view === 'topic') renderTopic();
@@ -1091,6 +1094,17 @@ import { topicMap } from './map.js';
     return ` · ${seconds(t.ms)}${check} · ${toggle}`;
   }
 
+  // The note under an answer with underlined sentences, saying what kind of problem they have. A sentence can
+  // cite a real passage and still be underlined: the passage doesn't say all of it.
+  function groundingNote(flagged) {
+    const kinds = new Set(flagged.map((f) => f.kind));
+    const parts = [];
+    if (kinds.has('miscited') || kinds.has('unverified')) parts.push('Underlined parts say more than the passages they cite.');
+    if (kinds.has('missing')) parts.push("Underlined parts include details that aren't in the Wikipedia sources.");
+    if (kinds.has('uncited')) parts.push('Parts underlined in grey have no source number.');
+    return `${parts.join(' ')} Hover over them to see why.`;
+  }
+
   function renderMessage(m, i) {
     if (m.role === 'user') {
       const quote = m.quote ? `<blockquote>${textUtil.esc(m.quote.text.slice(0, 280))}${m.quote.text.length > 280 ? '…' : ''}</blockquote>` : '';
@@ -1106,9 +1120,7 @@ import { topicMap } from './map.js';
     const labelOf = new Map(cited.map((n, k) => [n, k + 1]));
     const attrs = (n) => ({ ...citeAttrs(n), label: labelOf.get(n) });
     const body = m.content ? `<div class="answer">${markdown.render(m.content, known, attrs, flagged)}</div>` : '';
-    const grounding = flagged.length
-      ? `<div class="grounding-note">${flagged.some((f) => f.kind !== 'uncited') ? "Underlined parts couldn't be matched to the Wikipedia sources." : 'Parts underlined in grey have no source number.'} Hover over them to see why.</div>`
-      : '';
+    const grounding = flagged.length ? `<div class="grounding-note">${groundingNote(flagged)}</div>` : '';
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${textUtil.esc(m.status || 'Thinking')}${m.words ? ` <span class="words">· ${m.words} words</span>` : ''}</div>` : '';
     const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
     const error = m.error
@@ -1463,7 +1475,7 @@ import { topicMap } from './map.js';
     else if (t.matches('.remove-page')) topicAction(() => send({ type: 'topics:removePage', id: state.topic.id, title: t.dataset.title }));
     else if (t.matches('.leave-topic')) {
       state.useTopicHere = null;
-      topicAction(() => send({ type: 'topics:setActive', id: null }));
+      topicAction(() => send({ type: 'topics:setActive', id: null, close: state.topic?.id }));
     }
     else if (t.matches('.open-topic')) {
       state.useTopicHere = true; // opened on purpose, so use it here even if this article isn't in it
