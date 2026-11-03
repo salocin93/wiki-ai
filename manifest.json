@@ -17,6 +17,7 @@
   ],
   "host_permissions": [
     "https://*.wikipedia.org/*",
+    "https://query.wikidata.org/*",
     "https://generativelanguage.googleapis.com/*"
   ],
   "optional_host_permissions": [

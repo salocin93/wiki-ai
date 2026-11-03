@@ -166,7 +166,9 @@ test('model JSON: tool arguments become strings, a cluster plan its expected sha
   assert.deepEqual(agent.toolArgs('[1]'), {});
   assert.deepEqual(agent.toolArgs('{broken'), {});
   const plan = cluster.planShape({ name: 'T', facets: { name: 'not a list' }, search: [{ query: 'q' }, 'x'] });
-  assert.deepEqual(plan, { name: 'T', facets: [], search: [{ query: 'q', facet: '' }] });
+  assert.deepEqual(plan, { name: 'T', kind: 'mixed', facets: [], search: [{ query: 'q', facet: '' }] });
+  assert.equal(cluster.planShape({ kind: 'events' }).kind, 'events');
+  assert.equal(cluster.planShape({ kind: 'stuff' }).kind, 'mixed', 'an unknown kind counts as mixed');
   assert.deepEqual(cluster.planShape({ facets: [{ name: 'A', pages: ['3', 4, 'x', null] }] }).facets, [{ name: 'A', why: '', pages: [3, 4] }]);
   assert.throws(() => cluster.planShape([1, 2]));
 });
@@ -276,4 +278,28 @@ test('cache: stats count the cached data itself, and drop to zero when cleared',
   assert.ok(s.bytes > 2000 && s.bytes < 2100, String(s.bytes));
   await cache.clear();
   assert.deepEqual(await cache.stats(), { entries: 0, bytes: 0 });
+});
+
+test('types: priority order, dated items as events, a query that walks up from the item', async () => {
+  const { articleTypes } = await import('../lib/types.js');
+  assert.equal(articleTypes.pick(['group', 'place']), 'place', 'Paris is a settlement before a public body');
+  assert.equal(articleTypes.pick(['concept', 'dated']), 'event', 'an earthquake has a date, photosynthesis has not');
+  assert.equal(articleTypes.pick(['concept']), 'concept');
+  assert.equal(articleTypes.pick([]), 'other');
+  const q = articleTypes.sparql('Q7259');
+  assert.ok(q.includes('wd:Q7259 wdt:P31') && q.includes('gearing "forward"'));
+  assert.equal(await articleTypes.articleType('not an id'), 'other', 'no request for a malformed id');
+});
+
+test('phrases: typed questions only where a section can answer them', async () => {
+  const { phraseBook } = await import('../content/phrases.js');
+  const q = (code, type, headings) => phraseBook.typedQuestions(code, type, 'X', headings);
+  assert.deepEqual(q('en', 'person', ['Early life', 'Work', 'Legacy']), ['What is X best known for?', 'What were the turning points in the life of X?']);
+  assert.deepEqual(q('en', 'event', ['Armies', 'Battle']), ['What happened in “X”, and why did it matter?'], 'no causes or aftermath section');
+  assert.deepEqual(q('en', 'concept', ['Causes']), ['Explain “X” in simple terms'], '"uses" only counts at the start of a word');
+  assert.equal(q('de', 'person', ['Lebenslauf'])[1], 'Was waren die Wendepunkte im Leben von X?', 'German compounds match by their start');
+  assert.deepEqual(q('en', 'other', ['History']), []);
+  assert.deepEqual(q('xx', 'work', ['Reception']).length, 2, 'unknown languages get English');
+  assert.equal(phraseBook.topicQuestion('en', 'events'), 'In what order did these events happen, and how did each lead to the next?');
+  assert.equal(phraseBook.topicQuestion('en', 'mixed'), '');
 });

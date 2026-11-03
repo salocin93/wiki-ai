@@ -27,6 +27,7 @@ import { topics } from '../lib/topics.js';
       return {
         content: JSON.stringify({
           name: document.title.replace(' - Wikipedia', ''),
+          kind: 'people',
           facets: [
             { name: 'Core lines', why: 'The main branches.', pages: take(1, 6) },
             { name: 'Related houses', why: 'Families tied by marriage or descent.', pages: take(7, 5) },

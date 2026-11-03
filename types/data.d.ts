@@ -72,6 +72,7 @@ interface TopicPage {
 interface Topic {
   id: string;
   name: string;
+  kind?: 'people' | 'family' | 'events' | 'places' | 'works' | 'ideas' | 'mixed'; // older topics have none
   lang: string;
   seed: string;
   createdAt: number;
