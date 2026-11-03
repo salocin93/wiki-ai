@@ -31,24 +31,36 @@ The sidebar opens on every Wikipedia article. Close it with × (it stays closed 
 ## How it works
 
 ```
-content/content.js   sidebar (shadow DOM): chat, topic, map and history views, selection button
-content/page.js      the article on screen: links and their context, sections, finding and
-                     highlighting a cited passage (CSS Custom Highlight API), links back to Wikipedia
-content/markdown.js  escape-first Markdown for answers; KaTeX is loaded on the first formula
-content/phrases.js   starter questions in several languages
-background/          service worker: runs the agent per question over a runtime port
-scripts/build.mjs    esbuild: bundles the ES modules into dist/wiki-ai/ (build, watch, release)
-lib/wiki.js          Wikipedia API: plain-text article split into sections → ~160-word chunks,
-                     plus its tables, infobox and images (with Wikimedia Commons details);
-                     REST summaries; cached 24 h in IndexedDB
-lib/tables.js        tables, infoboxes and images from the article HTML as text (the extract drops them)
-lib/bm25.js          keyword search over chunks and over links (no embedding model needed)
-lib/agent.js         tool-calling loop, prompt budget, numbered sources
-lib/prompt.js        the agent's system prompt, one entry per rule
-lib/text.js          helpers shared by the worker, panel and settings (escaping, citations, URLs)
-lib/llm.js           streaming OpenAI-compatible client (tool calls, <think> handling, 503 fallback)
-lib/cluster.js       builds a topic cluster: rank links → model groups them into themes → check titles
-lib/topics.js        saved topics, search across a topic's articles, message API for the sidebar
+content/content.js      sidebar (shadow DOM): chat, topic, map and history views, selection button
+content/page.js         the article on screen: links and their context, sections, finding and
+                        highlighting a cited passage (CSS Custom Highlight API), links back to Wikipedia
+content/markdown.js     escape-first Markdown for answers; KaTeX is loaded on the first formula
+content/map.js          the topic map (no library)
+content/phrases.js      starter questions in several languages
+background/             service worker: runs the agent per question over a runtime port, checks
+                        who sends each message
+options/                settings page (provider, key, answer language, storage)
+lib/wiki.js             Wikipedia API: plain-text article split into sections → ~160-word chunks,
+                        plus its tables, infobox and images (with Wikimedia Commons details);
+                        REST summaries; cached 24 h in IndexedDB
+lib/tables.js           tables, infoboxes and images from the article HTML as text (the extract drops them)
+lib/sections.js         names of reference and "See also" sections in many languages
+lib/bm25.js             keyword search over chunks and over links (no embedding model needed)
+lib/links.js            how central each linked article is (navigation boxes, infobox, introduction …)
+lib/agent.js            tool-calling loop, prompt budget, numbered sources
+lib/prompt.js           the agent's system prompt, one entry per rule
+lib/grounding.js        checks each sentence's details against the passages it cites
+lib/llm.js              streaming OpenAI-compatible client (tool calls, <think> handling, 503 fallback)
+lib/cluster.js          builds a topic cluster: rank links → model groups them into themes → check titles
+lib/topics.js           saved topics, search across a topic's articles, message API for the sidebar
+lib/conversations.js    saved chats, with size limits
+lib/storage.js          extension storage with one write at a time per key
+lib/cache.js            the 24-hour article cache (IndexedDB)
+lib/settings.js         settings, endpoint rules, token estimates
+lib/text.js             helpers shared by the worker, panel and settings (escaping, citations, URLs)
+types/                  shared record types for the type check
+scripts/build.mjs       esbuild: bundles the ES modules into dist/wiki-ai/ (build, watch, release)
+scripts/package.sh      zips a release build for testers or the Chrome Web Store
 ```
 
 ### How a topic cluster is built
@@ -107,10 +119,10 @@ The key is stored only in the browser's extension storage. Plain `http://` endpo
 
 ### Packages
 ```bash
-npm run package          # dist/wiki-ai-<version>.zip, for testers (one wiki-ai folder, with TESTING.md)
+npm run package          # dist/wiki-ai-<version>.zip, for testers (one wiki-ai folder, with docs/TESTING.md)
 npm run package:store    # dist/wiki-ai-<version>-store.zip, for the Chrome Web Store (manifest at the root)
 ```
-Each makes a release build (no source maps) in a temporary folder, so `dist/wiki-ai/` and a running `npm run watch` are left alone. Older zips stay in `dist/`. The listing text is in `STORE_LISTING.md`; the privacy policy is `PRIVACY.md`.
+Each makes a release build (no source maps) in a temporary folder, so `dist/wiki-ai/` and a running `npm run watch` are left alone. Older zips stay in `dist/`. The listing text and submission steps are in [docs/STORE_LISTING.md](docs/STORE_LISTING.md); the privacy policy is [PRIVACY.md](PRIVACY.md).
 
 ## Testing
 
@@ -160,3 +172,13 @@ Then open http://127.0.0.1:8765/test/fixtures/ada.html. With `npm run watch` run
 - Small models sometimes answer from the introduction instead of opening a linked article. Larger models follow links more reliably.
 - Highlighting finds passages by matching text. Passages with math or heavy templates fall back to scrolling to the section heading.
 - English stopwords only. Other-language Wikipedias work, with slightly noisier keyword search.
+
+## Documentation
+
+| File | What it is |
+|---|---|
+| [PRIVACY.md](PRIVACY.md) | The privacy policy. The extension links to it, so it stays at this path |
+| [docs/TESTING.md](docs/TESTING.md) | Guide for testers; it goes into the tester zip |
+| [docs/STORE_LISTING.md](docs/STORE_LISTING.md) | Chrome Web Store listing text, dashboard answers and submission steps |
+| [docs/review/REPORT.md](docs/review/REPORT.md) | Final report of the pre-publication review: what was fixed, in which pull request, and what's left |
+| [docs/review/](docs/review/) | The review itself (2026-11-03, of commit `db7f2d6`): code review, security, store readiness, action plan and architecture as they were then |

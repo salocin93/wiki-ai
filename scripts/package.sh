@@ -23,7 +23,7 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir "$stage/wiki-ai"
 node scripts/build.mjs --release --out "$stage/wiki-ai" > /dev/null
-$store || cp TESTING.md "$stage/wiki-ai/"
+$store || cp docs/TESTING.md "$stage/wiki-ai/"
 
 # The store wants manifest.json at the root of the zip; testers get a single "wiki-ai" folder.
 if $store; then

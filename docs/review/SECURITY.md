@@ -1,6 +1,8 @@
 # Wiki AI: security and privacy
 
-Commit `db7f2d6`, version 0.3.0. These are the security and privacy findings from `CODE_REVIEW.md` (same IDs), plus a threat model. Severity and status are defined in `CODE_REVIEW.md`.
+> **Snapshot from the pre-publication review.** Reviewed commit `db7f2d6` (2026-11-02 02:22 CET, version 0.3.0). Written on 2026-11-03, 02:57–03:37 CET, and added in commit `c63037a`. It describes the code as it was then, and line numbers refer to that commit. For what was fixed since, and in which pull request, see [REPORT.md](REPORT.md).
+
+These are the security and privacy findings from `CODE_REVIEW.md` (same IDs), plus a threat model. Severity and status are defined in `CODE_REVIEW.md`.
 
 ## Threat model
 

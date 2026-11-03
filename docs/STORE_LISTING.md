@@ -1,6 +1,13 @@
-# Chrome Web Store listing: draft
+# Chrome Web Store listing
 
-Text to paste into the developer dashboard. Fill in `<CONTACT EMAIL>` and check the privacy policy URL before you submit.
+Text to paste into the developer dashboard, and the steps to submit. Up to date as of 2026-11-03.
+
+## Before you submit
+1. Fill in `<CONTACT EMAIL>` here and in [PRIVACY.md](../PRIVACY.md).
+2. Make the privacy policy reachable at a public address, and put that address where this page says `<PRIVACY POLICY URL>`. The extension links to `PRIVACY.md` on GitHub (`PRIVACY_URL` in `lib/settings.js`), and the repo is private, so either make it public or host the policy elsewhere and change `PRIVACY_URL`.
+3. Make the assets listed under **Assets to prepare**.
+4. Test the release build in Chrome (see [docs/review/REPORT.md](review/REPORT.md), "Still to do").
+5. Bump `version` in `manifest.json` and build the zip (see **Build**).
 
 ## Name
 Wiki AI
@@ -26,7 +33,7 @@ What it does:
 
 Privacy: the developer runs no servers and receives none of your data. Chats and topics are stored only in your browser, and you can delete them at any time. Details: <PRIVACY POLICY URL>
 
-While the sidebar is open, Wiki AI makes room for it on the page: the article gets narrower, and Wikipedia's right-hand tools column moves into its menus.
+While the sidebar is open, Wiki AI makes room for it on the page: the article gets narrower, Wikipedia's right-hand tools column moves into its menus, and on narrower windows the account links move into the user menu.
 
 Wikipedia text is available under CC BY-SA 4.0; each answer links to the articles it quotes. Wiki AI is an independent project, not affiliated with, endorsed by or sponsored by Wikipedia or the Wikimedia Foundation.
 
@@ -44,7 +51,7 @@ Answer the reader's questions about the Wikipedia article they are reading, usin
 ## Privacy practices tab
 - Data collected: **Website content** (Wikipedia passages) and **user-generated content** (questions, selected text, chat history), sent to the user's chosen AI provider. If the dashboard offers "Personal communications", it doesn't apply: the questions aren't messages to other people.
 - Certify: not sold to third parties; not used or transferred for purposes unrelated to the single purpose; not used for creditworthiness or lending.
-- Privacy policy URL: the hosted copy of `PRIVACY.md`.
+- Privacy policy URL: the public address of `PRIVACY.md` (see **Before you submit**).
 
 ## Assets to prepare
 - Icon 128×128: `icons/icon-128.png`
@@ -54,6 +61,7 @@ Answer the reader's questions about the Wikipedia article they are reading, usin
 
 ## Build
 ```bash
-scripts/package.sh --store
+npm install
+npm run package:store
 ```
-Upload `dist/wiki-ai-<version>-store.zip`. Bump `version` in `manifest.json` before each upload.
+This makes a release build (bundled, not minified, no source maps) and writes `dist/wiki-ai-<version>-store.zip` with `manifest.json` at its root. Upload that zip. Bump `version` in `manifest.json` before each upload.

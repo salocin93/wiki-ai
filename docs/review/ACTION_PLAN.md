@@ -1,15 +1,10 @@
 # Wiki AI: action plan
 
-Ordered by impact within each group. Effort: **S** ≤ 2 h · **M** ≈ half a day to 2 days · **L** > 2 days. IDs refer to `CODE_REVIEW.md`, `SECURITY.md` and `STORE_READINESS.md`.
+> **Snapshot from the pre-publication review.** Reviewed commit `db7f2d6` (2026-11-02 02:22 CET, version 0.3.0). Written on 2026-11-03, 02:57–03:37 CET, and added in commit `c63037a`. It describes the code as it was then, and line numbers refer to that commit. For what was fixed since, and in which pull request, see [REPORT.md](REPORT.md).
+
+The fix order proposed by the review, as written then. Ordered by impact within each group. Effort: **S** ≤ 2 h · **M** ≈ half a day to 2 days · **L** > 2 days. IDs refer to `CODE_REVIEW.md`, `SECURITY.md` and `STORE_READINESS.md`.
 
 ## Before publishing
-
-**Progress (2026-11-03, uncommitted).**
-- #2–#14 are done in code.
-  - #12 tags Wikipedia text inside the system prompt instead of moving it into a user message, because some chat templates require strict user/assistant turns.
-  - #9 adds the keepalive, but it hasn't been tested against a slow server.
-- #1 is drafted in `PRIVACY.md` and `STORE_LISTING.md`. It still needs a contact email and a hosted URL.
-- #15: formulas render through KaTeX in the harness. Still to check in Chrome with the extension reloaded.
 
 | # | Fix | IDs | Effort |
 |---|---|---|---|
@@ -31,8 +26,6 @@ Ordered by impact within each group. Effort: **S** ≤ 2 h · **M** ≈ half a d
 
 ## Soon after
 
-**Progress (2026-11-03).** Items 16–30 are done (merged in PR #2). #26 has `npm test` (19 tests), ESLint (`npm run lint`, with `no-empty`) and a GitHub Actions workflow that runs both.
-
 | # | Fix | IDs | Effort |
 |---|---|---|---|
 | 16 | Record `revid`; fetch HTML for the same revision; link citations with `oldid`; mark previews when the live page differs | C-3 | M |
@@ -52,15 +45,6 @@ Ordered by impact within each group. Effort: **S** ≤ 2 h · **M** ≈ half a d
 | 30 | Drop follow-ups the answer already answers | A-9 (BUG-014) | S |
 
 ## Later
-
-**Progress (2026-11-03, branch `later-items`).**
-- Done: #32, #33, #34, #35, #36, #37, #38, #39, #40, #41.
-- #31 in part: page reading and citation highlighting are in `content/page.js`, starter phrases in `content/phrases.js`, the system prompt in `lib/prompt.js` (one entry per rule, same text). The views stay in `content.js` (1 544 lines, was 1 992): they share the panel's state, so splitting them is a larger change.
-- #32: the three sentence splitters stay separate on purpose: chunking, locating text on the page and the source check each need different boundaries.
-- #33: `npm run typecheck` (TypeScript over the JavaScript, in CI) with the shared records typed in `types/data.d.ts`; model JSON is checked (tool arguments, the cluster plan). Not strict: plain JS parameters stay untyped unless annotated.
-- #35: optional, off by default (Settings › Answers). With it on, the model judges every cited sentence (up to 20) against its cited passages, and its verdict replaces the word check's for those sentences.
-- Since 2026-11-03, unbacked claims are no longer underlined, whichever check found them: the model is asked once to fix them (cite the right passage or leave the claim out), and whatever is still unbacked is left out of the answer, listed in a collapsed note under it. Sentences that only lack a citation, with every detail in the sources, pass. The check's timing is in each answer's debug info. Not yet tried with a real model.
-- #34: the dynamic import is checked in the harness only; check formulas in Chrome with the extension reloaded.
 
 | # | Fix | IDs | Effort |
 |---|---|---|---|
