@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "moduleDetection": "force",
+    "target": "es2023",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": [],
+    "skipLibCheck": true
+  },
+  "include": ["types/*.d.ts", "lib/*.js", "content/*.js", "background/*.js", "options/*.js"]
+}

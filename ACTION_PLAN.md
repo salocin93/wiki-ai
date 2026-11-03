@@ -53,6 +53,14 @@ Ordered by impact within each group. Effort: **S** ≤ 2 h · **M** ≈ half a d
 
 ## Later
 
+**Progress (2026-11-03, branch `later-items`).**
+- Done: #32, #33, #34, #35, #36, #37, #38, #39, #40, #41.
+- #31 in part: page reading and citation highlighting are in `content/page.js`, starter phrases in `content/phrases.js`, the system prompt in `lib/prompt.js` (one entry per rule, same text). The views stay in `content.js` (1 544 lines, was 1 992): they share the panel's state, so splitting them is a larger change.
+- #32: the three sentence splitters stay separate on purpose: chunking, locating text on the page and the source check each need different boundaries.
+- #33: `npm run typecheck` (TypeScript over the JavaScript, in CI) with the shared records typed in `types/data.d.ts`; model JSON is checked (tool arguments, the cluster plan). Not strict: plain JS parameters stay untyped unless annotated.
+- #35: optional, off by default (Settings › Answers, or the switch under each answer). Before an answer is shown, one more request has the model judge each cited sentence (up to 20) against its cited passages; unsupported ones are underlined with the model's reason. It flags only, no rewrite. Each answer shows its total time and the check's share, for comparing speed with it on and off. Not yet tried with a real model.
+- #34: the dynamic import is checked in the harness only; check formulas in Chrome with the extension reloaded.
+
 | # | Fix | IDs | Effort |
 |---|---|---|---|
 | 31 | Split `content.js` into page extraction, highlighting, views and i18n; move prompt rules into `lib/prompt.js` | Q-1 | L |

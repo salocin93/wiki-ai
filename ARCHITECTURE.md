@@ -1,6 +1,6 @@
 # Wiki AI: architecture
 
-Snapshot of commit `db7f2d6` (version 0.3.0), written for the pre-publication review. Plain JavaScript, no build step, no package manager.
+Snapshot of commit `db7f2d6` (version 0.3.0), written for the pre-publication review. Plain JavaScript, no build step, no package manager. Line numbers refer to that commit; since then page reading and highlighting moved to `content/page.js`, the phrase tables to `content/phrases.js`, the system prompt to `lib/prompt.js` and shared helpers to `lib/text.js` (see `ACTION_PLAN.md`).
 
 ## Platform
 

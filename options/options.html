@@ -72,6 +72,11 @@
         <span class="track" aria-hidden="true"></span>
         <span><strong>Fast answers</strong><span class="hint block">Turn off the model's thinking step where possible. Faster, and uses less of a free quota.</span></span>
       </label>
+      <label class="switch">
+        <input type="checkbox" id="verifyCitations">
+        <span class="track" aria-hidden="true"></span>
+        <span><strong>Check citations with the model</strong><span class="hint block">Before an answer is shown, the model reads each cited sentence next to its passages and underlines the ones they don't support. Catches reworded or overstated claims, but adds one request per answer: slower, and uses more of a free quota. Each answer shows how long the check took.</span></span>
+      </label>
       <details class="advanced">
         <summary>Advanced</summary>
         <div class="three">
@@ -106,6 +111,7 @@
   <footer class="version" id="version"></footer>
 
   <script src="../lib/settings.js"></script>
+  <script src="../lib/text.js"></script>
   <script src="../lib/llm.js"></script>
   <script src="options.js"></script>
 </body>

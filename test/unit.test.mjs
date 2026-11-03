@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const load = (f) => vm.runInThisContext(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'), { filename: f });
-for (const f of ['settings', 'storage', 'sections', 'cache', 'bm25', 'tables', 'wiki', 'llm', 'links', 'grounding', 'agent', 'topics', 'conversations']) load(`lib/${f}.js`);
+for (const f of ['settings', 'text', 'storage', 'sections', 'cache', 'bm25', 'tables', 'wiki', 'llm', 'links', 'grounding', 'prompt', 'agent', 'topics', 'conversations', 'cluster']) load(`lib/${f}.js`);
 load('vendor/katex/katex.min.js');
 load('content/markdown.js');
 const W = globalThis.WikiAI;
@@ -32,6 +32,11 @@ test('markdown: underlines flagged sentences, grey for uncited ones', () => {
   ]);
   assert.match(html, /<span class="unsupported uncited" title="No source given">One claim\.<\/span>/);
   assert.match(html, /<span class="unsupported" title="Not found: X">Two claim/);
+});
+
+test('markdown: private-use characters in the answer are not taken for markers', () => {
+  const html = W.markdown.render('Odd \uE0000\uE001 text \uE0100\uE011 [1].', () => true, null, [{ text: 'Odd text.', note: 'n', kind: 'missing' }]);
+  assert.ok(!html.includes('<span') && !/[\uE000-\uF8FF]/.test(html));
 });
 
 test('markdown: formulas render with KaTeX, prices stay text', () => {
@@ -139,6 +144,60 @@ test('agent: follow-ups already asked or already answered are dropped', () => {
   const r = run({ history: [{ role: 'user', content: 'Who was her father?' }, { role: 'assistant', content: 'Her father was Lord Byron.' }] });
   const kept = r.freshFollowups(['Who was her father?', 'Where is she buried beside her father?', 'What did Babbage build?'], 'She is buried beside her father in Hucknall.');
   assert.deepEqual(kept, ['What did Babbage build?']);
+});
+
+test('agent: questions for private contact details are answered without lookups', () => {
+  const asks = ['What is her home address?', "What's Taylor Swift's phone number?", 'Wie lautet seine Telefonnummer?', '¿Cuál es su dirección?'];
+  for (const q of asks) assert.ok(W.agent.privateContactReply(q), q);
+  const fine = ['What was the Gettysburg Address about?', 'What is the emergency phone number in Europe?', 'Where did her family live?', '¿Quién tuvo su dirección artística?'];
+  for (const q of fine) assert.equal(W.agent.privateContactReply(q), '', q);
+});
+
+test('model JSON: tool arguments become strings, a cluster plan its expected shape', () => {
+  assert.deepEqual(W.agent.toolArgs('{"query": ["a", "b"], "title": 42, "x": null}'), { query: 'a b', title: '42' });
+  assert.deepEqual(W.agent.toolArgs('[1]'), {});
+  assert.deepEqual(W.agent.toolArgs('{broken'), {});
+  const plan = W.cluster.planShape({ name: 'T', facets: { name: 'not a list' }, search: [{ query: 'q' }, 'x'] });
+  assert.deepEqual(plan, { name: 'T', facets: [], search: [{ query: 'q', facet: '' }] });
+  assert.deepEqual(W.cluster.planShape({ facets: [{ name: 'A', pages: ['3', 4, 'x', null] }] }).facets, [{ name: 'A', why: '', pages: [3, 4] }]);
+  assert.throws(() => W.cluster.planShape([1, 2]));
+});
+
+test('prompt: one entry per rule, the topic rule only in a topic', () => {
+  const base = { title: 'Ada Lovelace', languageRule: 'Write in English.', followupLanguage: '' };
+  const plain = W.prompt.rules(base);
+  assert.ok(plain.some((r) => r.includes('"Ada Lovelace"')));
+  assert.ok(plain.includes('Write in English.'));
+  assert.ok(!plain.some((r) => r.startsWith('Topic questions')));
+  assert.equal(W.prompt.rules({ ...base, topic: true }).length, plain.length + 1);
+  assert.match(W.prompt.system({ ...base, lang: 'en', wikipedia: 'X' }), /^You are[\s\S]*\nRules:\n- Text inside[\s\S]*<wikipedia>X\n<\/wikipedia>$/);
+});
+
+test('agent: the citation check flags what the model says the cited passages do not support', async () => {
+  const r = run();
+  r.cite({ lang: 'en', page: 'T', section: 'S', text: 'Ada was born in London in 1815.' }, true);
+  r.cite({ lang: 'en', page: 'T', section: 'S', text: 'She worked with Babbage on the Analytical Engine.' }, true);
+  let asked = '';
+  const real = W.llm.chatWithFallback;
+  W.llm.chatWithFallback = async ({ messages }) => {
+    asked = messages[1].content;
+    return { content: '{"unsupported": [{"statement": 1, "why": "The passage does not say she invented it."}, {"statement": 9, "why": "x"}]}' };
+  };
+  try {
+    const answer = 'Ada was born in London [1].\n- She invented the Analytical Engine [2].\n- She liked music.';
+    const already = [{ text: 'Ada was born in London [1].', kind: 'missing' }];
+    const flags = await r.verifyCitations(answer, already);
+    assert.ok(!asked.includes('born in London [1]'), 'a sentence the word check flagged is not sent again');
+    assert.ok(asked.includes('1. She invented the Analytical Engine [2].') && !asked.includes('music'), 'only cited sentences, without list markers');
+    assert.deepEqual(flags.map((f) => [f.text, f.kind]), [['She invented the Analytical Engine [2].', 'unverified']]);
+    assert.match(flags[0].why, /invented/);
+  } finally {
+    W.llm.chatWithFallback = real;
+  }
+});
+
+test('settings: the citation check is off unless turned on', () => {
+  assert.equal(W.settings.DEFAULTS.verifyCitations, false);
 });
 
 test('conversations: parallel saves all kept, uncited passages saved without text', async () => {

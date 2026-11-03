@@ -23,6 +23,7 @@ A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia ar
   - **Topic**: the active topic's themes and articles, saved topics, and **Questions to explore**.
   - **Map**: the topic's articles as a graph (colored by theme, sized by connections, lines for links). Click an article for its summary, open it, or ask about it; enlarge the map over the article area.
 - **Suggested next questions.** Every answer ends with three follow-up questions. Clicking one continues the same chat; asked ones get a ✓. Suggestions you haven't asked yet, from all your chats, collect under **Topic › Questions to explore**, and asking one there continues the chat it came from.
+- **Optional citation check.** With **Check citations with the model** on (Settings › Answers, or the switch under each answer), the model reads each cited sentence next to its passages before the answer is shown, and sentences they don't support are underlined. It adds one request per answer; each answer shows how long it took and how much the check added.
 - **Falls back automatically.** If the main model is unavailable or rate-limited, it retries on the fallback model set in the settings.
 
 The sidebar opens on every Wikipedia article. Close it with × (it stays closed in that tab) and reopen it with the round button (bottom right), the toolbar icon, or **Alt+Shift+W**.
@@ -30,8 +31,11 @@ The sidebar opens on every Wikipedia article. Close it with × (it stays closed 
 ## How it works
 
 ```
-content/content.js   sidebar (shadow DOM), link + context extraction from the page DOM,
-                     citation highlighting (CSS Custom Highlight API), selection button
+content/content.js   sidebar (shadow DOM): chat, topic, map and history views, selection button
+content/page.js      the article on screen: links and their context, sections, finding and
+                     highlighting a cited passage (CSS Custom Highlight API), links back to Wikipedia
+content/markdown.js  escape-first Markdown for answers; KaTeX is loaded on the first formula
+content/phrases.js   starter questions in several languages
 background/          service worker: runs the agent per question over a runtime port
 lib/wiki.js          Wikipedia API: plain-text article split into sections → ~160-word chunks,
                      plus its tables, infobox and images (with Wikimedia Commons details);
@@ -39,6 +43,8 @@ lib/wiki.js          Wikipedia API: plain-text article split into sections → ~
 lib/tables.js        tables, infoboxes and images from the article HTML as text (the extract drops them)
 lib/bm25.js          keyword search over chunks and over links (no embedding model needed)
 lib/agent.js         tool-calling loop, prompt budget, numbered sources
+lib/prompt.js        the agent's system prompt, one entry per rule
+lib/text.js          helpers shared by the worker, panel and settings (escaping, citations, URLs)
 lib/llm.js           streaming OpenAI-compatible client (tool calls, <think> handling, 503 fallback)
 lib/cluster.js       builds a topic cluster: rank links → model groups them into themes → check titles
 lib/topics.js        saved topics, search across a topic's articles, message API for the sidebar
@@ -104,6 +110,7 @@ This writes `dist/wiki-ai-<version>-store.zip` (manifest at the root, no tester 
 npm install
 npm test
 npm run lint
+npm run typecheck   # JSDoc types, with the shared records in types/
 ```
 
 **Agent against the real model, from the terminal:**

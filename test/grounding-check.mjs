@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 
+vm.runInThisContext(readFileSync(new URL('../lib/text.js', import.meta.url), 'utf8'), { filename: 'text.js' });
 vm.runInThisContext(readFileSync(new URL('../lib/grounding.js', import.meta.url), 'utf8'), { filename: 'grounding.js' });
 const G = globalThis.WikiAI.grounding;
 

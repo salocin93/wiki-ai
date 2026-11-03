@@ -2,7 +2,7 @@
 // shown over the article area next to the sidebar. No library: a fixed grouped layout is enough for ~30 nodes.
 (function (g) {
   const W = (g.WikiAI = g.WikiAI || {});
-  const esc = (s) => W.markdown.esc(String(s ?? ''));
+  const esc = W.text.esc;
 
   // Deterministic layout: same topic, same picture. Each theme gets its own round region on a ring around the
   // starting article, so themes never overlap; inside a region articles are packed in a sunflower spiral, the
@@ -144,18 +144,20 @@
   }
 
   // Full-size map over the article area, next to the sidebar. Returns a function that closes it.
+  const closers = new WeakMap(); // open overlay → its close function (removes its listeners too)
   function open(opts) {
     // An overlay still open is closed properly, so its Escape handler goes too.
     const old = opts.root.querySelector('.map-overlay');
-    if (old) old.__close ? old.__close() : old.remove();
+    if (old) closers.has(old) ? closers.get(old)() : old.remove();
     const overlay = document.createElement('div');
     overlay.className = 'map-overlay';
     overlay.style.right = `${opts.rightInset || 0}px`;
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-label', `Map of the topic ${opts.topic.name}`);
     opts.root.appendChild(overlay);
-    overlay.__close = draw(overlay, opts, true);
-    return overlay.__close;
+    const close = draw(overlay, opts, true);
+    closers.set(overlay, close);
+    return close;
   }
 
   // Map inside a container (the sidebar's Map tab). Returns a function that removes it.
@@ -302,7 +304,7 @@
 
     // Labels keep their size on screen while zooming; where they would overlap, the less connected
     // article's label is hidden until it's hovered or selected, so zooming in reveals more of them.
-    const order = nodes.map((n, i) => i).sort((a, b) => (nodes[b].id === currentTitle) - (nodes[a].id === currentTitle) || nodes[b].deg - nodes[a].deg);
+    const order = nodes.map((n, i) => i).sort((a, b) => Number(nodes[b].id === currentTitle) - Number(nodes[a].id === currentTitle) || nodes[b].deg - nodes[a].deg);
     function placeLabels() {
       const ls = view.w / w;
       svg.style.setProperty('--label-scale', String(ls));
@@ -335,7 +337,7 @@
       });
       // While highlighting, only highlighted articles get labels: the hovered one, then the rest by connections.
       const keep = (i) => nodes[i].id === currentTitle || (focus && focus.lead === i);
-      const turn = focus ? [...order].sort((a, b) => keep(b) - keep(a)).filter((i) => focus.on.has(i) || nodes[i].id === currentTitle) : order;
+      const turn = focus ? [...order].sort((a, b) => Number(keep(b)) - Number(keep(a))).filter((i) => focus.on.has(i) || nodes[i].id === currentTitle) : order;
       if (focus) for (const el of nodeEls) el.querySelector('text').classList.add('crowded');
       for (const i of turn) {
         const text = nodeEls[i].querySelector('text');
