@@ -281,9 +281,9 @@ async function data(msg) {
 
 async function showStorage() {
   const s = await data({ type: 'cache:stats' });
-  const mb = s.bytes != null ? ` · about ${(s.bytes / 1e6).toFixed(1)} MB in total` : '';
+  const size = (bytes) => (bytes == null ? '' : bytes < 1e5 ? ` (${Math.max(1, Math.round(bytes / 1e3))} KB)` : ` (${(bytes / 1e6).toFixed(1)} MB)`);
   const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-  $('storage').textContent = `${count(s.entries, 'cached Wikipedia response', 'cached Wikipedia responses')} · ${count(s.topics, 'saved topic', 'saved topics')}${mb}`;
+  $('storage').textContent = `Article cache: ${count(s.entries, 'Wikipedia response', 'Wikipedia responses')}${s.entries ? size(s.cacheBytes) : ''} · Chats, ${count(s.topics, 'topic', 'topics')} and settings${size(s.savedBytes)}`;
 }
 $('clearCache').addEventListener('click', async () => {
   await data({ type: 'cache:clear' });

@@ -265,3 +265,15 @@ test('topics: a closed topic stays closed on its articles until opened again', a
   assert.equal((await topics.forPage('en', 'A'))?.id, 'u2', 'opening it again brings it back');
   await topics.remove('u2');
 });
+
+test('cache: stats count the cached data itself, and drop to zero when cleared', async () => {
+  const { cache } = await import('../lib/cache.js');
+  await cache.clear();
+  await cache.set('t:a', { text: 'x'.repeat(1000) });
+  await cache.set('t:b', { text: 'é'.repeat(500) }); // two bytes each in UTF-8
+  const s = await cache.stats();
+  assert.equal(s.entries, 2);
+  assert.ok(s.bytes > 2000 && s.bytes < 2100, String(s.bytes));
+  await cache.clear();
+  assert.deepEqual(await cache.stats(), { entries: 0, bytes: 0 });
+});
