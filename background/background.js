@@ -2,6 +2,7 @@
 importScripts(
   '../lib/settings.js',
   '../lib/storage.js',
+  '../lib/sections.js',
   '../lib/cache.js',
   '../lib/bm25.js',
   '../lib/tables.js',
@@ -16,6 +17,50 @@ importScripts(
 );
 
 const W = globalThis.WikiAI;
+
+// Only the settings page and this extension's own pages may read or clear everything; content scripts (which
+// run inside Wikipedia's pages) get what the sidebar needs. Content scripts can't read extension storage at all
+// (it holds the API key), where the browser supports closing it to them.
+try {
+  chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' })?.catch?.(() => {});
+} catch {} // not supported for this storage area in older browsers
+
+// A content script's sender.url is its web page, so it can't pass for one of the extension's pages.
+const fromExtensionPage = (sender) => !!sender.url?.startsWith(chrome.runtime.getURL(''));
+function fromWikipedia(sender) {
+  try {
+    const url = new URL(sender.url || sender.tab?.url || '');
+    return url.protocol === 'https:' && url.hostname.endsWith('.wikipedia.org');
+  } catch {
+    return false;
+  }
+}
+const SIDEBAR_TYPES = new Set([
+  'openOptions', 'getSettings', 'privacyNoticeSeen', 'handoff:get', 'handoff:set',
+  'topics:list', 'topics:active', 'topics:forPage', 'topics:setActive', 'topics:delete', 'topics:addPage', 'topics:removePage',
+  'conv:list', 'conv:all', 'conv:save', 'conv:delete',
+]);
+
+// The fields each message must have; anything malformed is dropped before it reaches storage.
+const str = (v, max = 2000) => typeof v === 'string' && v.length <= max;
+const LANG = /^[a-z][a-z0-9-]{0,20}$/;
+function wellFormed(msg) {
+  switch (msg.type) {
+    case 'conv:list': return str(msg.scope);
+    case 'conv:save': return str(msg.scope) && !!msg.conv && str(msg.conv.id, 100) && Array.isArray(msg.conv.messages) && (msg.conv.sources == null || Array.isArray(msg.conv.sources));
+    case 'conv:delete': return str(msg.scope) && str(msg.id, 100);
+    case 'topics:forPage': return LANG.test(msg.lang) && str(msg.title, 500);
+    case 'topics:setActive': return msg.id == null || str(msg.id, 100);
+    case 'topics:delete': return str(msg.id, 100);
+    case 'topics:addPage':
+    case 'topics:removePage': return str(msg.id, 100) && str(msg.title, 500);
+    case 'handoff:set': return Array.isArray(msg.list) && msg.list.length <= 10;
+    case 'ask': return str(msg.question, 5000) && Array.isArray(msg.history ?? []) && Array.isArray(msg.sources ?? []) && validPage(msg.page) && (msg.topicId == null || str(msg.topicId, 100));
+    case 'buildTopic': return validPage(msg.page);
+    default: return true;
+  }
+}
+const validPage = (page) => !!page && LANG.test(page.lang) && str(page.title, 500) && Array.isArray(page.links ?? []);
 
 async function loadSettings() {
   const settings = await W.settings.load();
@@ -40,6 +85,8 @@ async function whileBusy(fn) {
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'wikiai-chat') return;
+  // Only the sidebar on a Wikipedia article (in the test harness there is no service worker).
+  if (port.sender?.id !== chrome.runtime.id || !fromWikipedia(port.sender)) return port.disconnect();
   let controller = null;
   let building = null;
   const emit = (msg) => {
@@ -49,6 +96,11 @@ chrome.runtime.onConnect.addListener((port) => {
   };
 
   port.onMessage.addListener(async (msg) => {
+    if (!msg || typeof msg.type !== 'string') return;
+    if (!wellFormed(msg)) {
+      emit(msg.type === 'buildTopic' ? { type: 'topicError', message: 'Bad request.' } : { type: 'error', message: 'Bad request.' });
+      return;
+    }
     if (msg.type === 'stop') {
       controller?.abort();
       return;
@@ -94,9 +146,16 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (sender.id !== chrome.runtime.id || !msg || typeof msg.type !== 'string') return;
+  const trusted = fromExtensionPage(sender);
+  if (!trusted && !(fromWikipedia(sender) && SIDEBAR_TYPES.has(msg.type))) return;
+  if (!wellFormed(msg)) {
+    sendResponse({ error: 'Bad request.' });
+    return;
+  }
   if (msg.type === 'openOptions') chrome.runtime.openOptionsPage();
-  if (/^(topics|cache|conv|data):/.test(msg.type)) {
+  if (/^(topics|cache|conv|data|handoff):/.test(msg.type)) {
     W.topics
       .handle(msg)
       .then((result) => sendResponse({ result }))
@@ -127,11 +186,21 @@ function sendToTab(tabId, msg) {
   chrome.tabs.sendMessage(tabId, msg).catch(() => {}); // not a Wikipedia article tab
 }
 
+// Version of what's kept in chrome.storage.local. Each step brings data saved by an older version up to date;
+// add a step (and raise the number) whenever the stored shape changes.
+const SCHEMA_VERSION = 1;
+async function migrate() {
+  const from = (await W.storage.get('schemaVersion')) || 0;
+  if (from >= SCHEMA_VERSION) return;
+  // 1: a topic's chats are deleted with it; remove those left behind by topics deleted earlier.
+  if (from < 1) await W.topics.dropOrphanChats();
+  await W.storage.set('schemaVersion', SCHEMA_VERSION);
+}
+
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   // New installs (e.g. a tester) start on the settings page to choose a model provider and paste a key.
   if (reason === 'install' && !(await W.settings.load()).apiKey) chrome.runtime.openOptionsPage();
-  // Chats left behind by topics deleted before deleting a topic took its chats along.
-  if (reason === 'update') W.topics.dropOrphanChats().catch(() => {});
+  await migrate().catch((e) => console.warn('Wiki AI: storage update failed', e));
   chrome.contextMenus.create({
     id: 'wikiai-ask',
     title: 'Ask Wiki AI about “%s”',

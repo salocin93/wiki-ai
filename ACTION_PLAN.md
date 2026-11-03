@@ -31,6 +31,8 @@ Ordered by impact within each group. Effort: **S** ≤ 2 h · **M** ≈ half a d
 
 ## Soon after
 
+**Progress (2026-11-03, branch `soon-after-fixes`).** Items 16–30 are done, except ESLint from #26: it needs a package install, which hasn't been approved yet. #26 now has `npm test` (19 tests) and a GitHub Actions workflow.
+
 | # | Fix | IDs | Effort |
 |---|---|---|---|
 | 16 | Record `revid`; fetch HTML for the same revision; link citations with `oldid`; mark previews when the live page differs | C-3 | M |
