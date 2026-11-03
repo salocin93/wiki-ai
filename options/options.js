@@ -1,6 +1,7 @@
 const W = globalThis.WikiAI;
+/** @type {(id: string) => any} */ // form controls of several kinds
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const { esc } = W.text;
 
 const ABOUT = {
   gemini: { title: 'Google Gemini', blurb: "Google's API with a free key" },
@@ -49,6 +50,7 @@ function collect() {
   out.model = $('model').value === OTHER ? settings.model : $('model').value;
   out.fallbackModel = $('fallbackModel').value === OTHER ? settings.fallbackModel : $('fallbackModel').value;
   out.disableThinking = $('disableThinking').checked;
+  out.verifyCitations = $('verifyCitations').checked;
   out.answerLanguage = $('answerLanguage').value;
   out.answerLanguageChosen = settings.answerLanguageChosen;
   for (const id of NUMBER_FIELDS) out[id] = Number($(id).value) || 0;
@@ -91,7 +93,7 @@ function renderProviders() {
 }
 
 $('providers').addEventListener('click', (e) => {
-  const card = e.target.closest('.provider');
+  const card = /** @type {HTMLElement | null} */ (/** @type {Element} */ (e.target).closest('.provider'));
   if (!card || card.dataset.id === settings.provider) return;
   apiKeys[settings.provider] = $('apiKey').value.trim();
   // Each provider keeps its own address and models, so switching back restores them.
@@ -258,7 +260,7 @@ async function allowEndpoint(baseUrl) {
     return false;
   }
 }
-for (const id of ['disableThinking', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
+for (const id of ['disableThinking', 'verifyCitations', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
 $('answerLanguage').addEventListener('change', () => {
   settings.answerLanguageChosen = true; // from now on this choice wins over the default
   scheduleSave();
@@ -306,6 +308,7 @@ $('clearAll').addEventListener('click', async () => {
   $('apiKey').value = settings.apiKey || '';
   $('baseUrl').value = settings.baseUrl || '';
   $('disableThinking').checked = settings.disableThinking;
+  $('verifyCitations').checked = settings.verifyCitations;
   $('answerLanguage').innerHTML = languageOptions();
   $('answerLanguage').value = settings.answerLanguage || 'browser';
   for (const id of NUMBER_FIELDS) $(id).value = settings[id];

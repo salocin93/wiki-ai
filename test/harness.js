@@ -11,12 +11,17 @@
       s.onerror = reject;
       document.head.appendChild(s);
     });
-  for (const f of ['lib/settings.js', 'lib/storage.js', 'lib/sections.js', 'lib/cache.js', 'lib/bm25.js', 'lib/tables.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/grounding.js', 'lib/agent.js', 'lib/topics.js', 'lib/conversations.js', 'lib/cluster.js', 'vendor/katex/katex.min.js', 'content/markdown.js', 'content/map.js']) await load(f);
+  for (const f of ['lib/settings.js', 'lib/text.js', 'lib/storage.js', 'lib/sections.js', 'lib/cache.js', 'lib/bm25.js', 'lib/tables.js', 'lib/wiki.js', 'lib/llm.js', 'lib/links.js', 'lib/grounding.js', 'lib/prompt.js', 'lib/agent.js', 'lib/topics.js', 'lib/conversations.js', 'lib/cluster.js', 'content/markdown.js', 'content/page.js', 'content/phrases.js', 'content/map.js']) await load(f);
   const W = globalThis.WikiAI;
   const settings = { ...W.settings.DEFAULTS, model: 'fake-model' };
 
   // Fake model: searches the article, opens one linked article, then answers citing what it got.
   W.llm.chat = async ({ messages, tools, onUpdate }) => {
+    // Citation check: a second or so, then calls the first statement unsupported, to show the underline.
+    if (!tools && messages[0].content.startsWith('You check whether Wikipedia passages')) {
+      await new Promise((r) => setTimeout(r, 1200));
+      return { content: JSON.stringify({ unsupported: [{ statement: 1, why: 'The passage names her but not this detail (scripted test).' }] }), toolCalls: [], model: 'fake-model' };
+    }
     // Cluster planning: pick candidate numbers into three themes.
     if (!tools && messages[0].content.includes('topic cluster')) {
       await new Promise((r) => setTimeout(r, 600));
@@ -72,7 +77,8 @@
       id: 'wikiai-harness',
       getURL: (p) => BASE + p,
       sendMessage: async (msg) => {
-        if (msg.type === 'getSettings') return { hasKey: true, recipient: 'the scripted test model', privacyUrl: W.settings.PRIVACY_URL, noticeSeen: !!window.__wikiaiNoticeSeen };
+        if (msg.type === 'getSettings') return { hasKey: true, recipient: 'the scripted test model', privacyUrl: W.settings.PRIVACY_URL, noticeSeen: !!window.__wikiaiNoticeSeen, verifyCitations: settings.verifyCitations };
+        if (msg.type === 'setVerifyCitations') return { result: (settings.verifyCitations = msg.on) };
         if (msg.type === 'privacyNoticeSeen') return { result: (window.__wikiaiNoticeSeen = true) };
         try {
           return { result: await W.topics.handle(msg) };

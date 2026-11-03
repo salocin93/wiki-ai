@@ -1,6 +1,7 @@
 // Service worker: runs the agent (Wikipedia + LLM requests) on behalf of the sidebar in each tab.
 importScripts(
   '../lib/settings.js',
+  '../lib/text.js',
   '../lib/storage.js',
   '../lib/sections.js',
   '../lib/cache.js',
@@ -10,6 +11,7 @@ importScripts(
   '../lib/llm.js',
   '../lib/links.js',
   '../lib/grounding.js',
+  '../lib/prompt.js',
   '../lib/agent.js',
   '../lib/topics.js',
   '../lib/conversations.js',
@@ -38,7 +40,7 @@ function fromWikipedia(sender) {
   }
 }
 const SIDEBAR_TYPES = new Set([
-  'openOptions', 'getSettings', 'privacyNoticeSeen', 'handoff:get', 'handoff:set',
+  'openOptions', 'getSettings', 'privacyNoticeSeen', 'setVerifyCitations', 'handoff:get', 'handoff:set',
   'topics:list', 'topics:active', 'topics:forPage', 'topics:setActive', 'topics:delete', 'topics:addPage', 'topics:removePage',
   'conv:list', 'conv:all', 'conv:save', 'conv:delete',
 ]);
@@ -57,6 +59,7 @@ function wellFormed(msg) {
     case 'topics:addPage':
     case 'topics:removePage': return str(msg.id, 100) && str(msg.title, 500);
     case 'handoff:set': return Array.isArray(msg.list) && msg.list.length <= 10;
+    case 'setVerifyCitations': return typeof msg.on === 'boolean';
     case 'ask': return str(msg.question, 5000) && Array.isArray(msg.history ?? []) && Array.isArray(msg.sources ?? []) && validPage(msg.page) && (msg.topicId == null || str(msg.topicId, 100));
     case 'buildTopic': return validPage(msg.page);
     default: return true;
@@ -173,11 +176,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         fallbackModel: s.fallbackModel,
         hasKey: !!s.apiKey,
         answerLanguage: s.answerLanguage,
+        verifyCitations: s.verifyCitations,
         recipient: W.settings.recipient(s),
         privacyUrl: W.settings.PRIVACY_URL,
         noticeSeen: !!seen,
       })
     );
+    return true;
+  }
+  // The panel's switch for the citation check, next to each answer's timing (the same setting as on the settings page).
+  if (msg.type === 'setVerifyCitations') {
+    W.settings
+      .load()
+      .then((s) => W.settings.save({ ...s, verifyCitations: msg.on }))
+      .then(() => sendResponse({ ok: true }), (e) => sendResponse({ error: e.message || String(e) }));
     return true;
   }
   if (msg.type === 'privacyNoticeSeen') {
@@ -201,6 +213,10 @@ async function migrate() {
   await W.storage.set('schemaVersion', SCHEMA_VERSION);
 }
 
+// Where the content script runs (manifest.json): /wiki/ pages, the script variants of zh and sr ("/zh-hans/…"), and
+// /w/index.php views. The content script itself leaves out edits, histories and old revisions.
+const ARTICLE_PAGES = ['https://*.wikipedia.org/wiki/*', 'https://*.wikipedia.org/zh*/*', 'https://*.wikipedia.org/sr*/*', 'https://*.wikipedia.org/w/index.php*'];
+
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   // New installs (e.g. a tester) start on the settings page to choose a model provider and paste a key.
   if (reason === 'install' && !(await W.settings.load()).apiKey) chrome.runtime.openOptionsPage();
@@ -209,7 +225,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     id: 'wikiai-ask',
     title: 'Ask Wiki AI about “%s”',
     contexts: ['selection'],
-    documentUrlPatterns: ['https://*.wikipedia.org/wiki/*'],
+    documentUrlPatterns: ARTICLE_PAGES,
   });
 });
 

@@ -4,13 +4,11 @@
   window.__wikiai = true;
 
   const W = globalThis.WikiAI;
-  const article = document.querySelector('#mw-content-text .mw-parser-output');
-  // Only main-namespace articles; the Main Page is in that namespace but is a portal of boxes.
-  if (!article || !document.body.classList.contains('ns-0') || document.body.classList.contains('page-Main_Page')) return;
-
-  const canonical = document.querySelector('link[rel=canonical]')?.href || location.href;
-  const lang = new URL(canonical).hostname.split('.')[0];
-  const title = decodeURIComponent(canonical.split('/wiki/')[1].split(/[#?]/)[0]).replace(/_/g, ' ');
+  // The page itself (identity, sections, links, citations in it) is read by page.js; nothing to do where it
+  // found no article.
+  if (!W.page) return;
+  const { article, canonical, lang, title, headings, headingText, sectionOf, visibleSection, isBackMatter, collectLinks, pageInfo,
+    otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl } = W.page;
   const PANEL_WIDTH = 420;
 
   const state = {
@@ -23,7 +21,6 @@
     pinQuestion: false, // keep the last question at the top, until the reader scrolls
     quote: null, // {text, section}
     port: null,
-    links: null,
     topic: null, // active topic cluster
     view: 'chat', // 'chat', 'topic' or 'map'
     savedTopics: [],
@@ -34,336 +31,6 @@
     historyFilter: '',
     pendingChat: null, // a chat to open once its topic or article has loaded
   };
-
-  // ---------- Page reading helpers ----------
-
-  const NON_ARTICLE_NS = /^(File|Image|Help|Special|Wikipedia|Template|Category|Portal|Talk|Module|Draft|User|MediaWiki|Book|Media|WP|Template talk|User talk)(:)/i;
-  const isBackMatter = (name) => W.sections.isBackMatter(name); // references, external links, "See also", in many languages
-  const SKIP_LINK_AREAS = '.reflist, .references, .mw-references-wrap, sup.reference, cite, .citation, .reference-text, .mw-editsection, .sistersitebox, .shortdescription, .navbar';
-
-  const headingText = (h) => (h.querySelector('.mw-headline')?.textContent || h.textContent).replace(/\[edit\]$/, '').trim();
-  const headings = () => [...article.querySelectorAll('h2, h3, h4')];
-
-  function sectionOf(node) {
-    let name = 'Introduction';
-    for (const h of headings()) {
-      if (h.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) name = headingText(h);
-      else break;
-    }
-    return name;
-  }
-
-  const headingLevel = (el) => {
-    const h = el.matches('h2, h3, h4, h5, h6') ? el : el.matches('.mw-heading') ? el.querySelector('h2, h3, h4, h5, h6') : null;
-    return h ? Number(h.tagName[1]) : 0;
-  };
-
-  // The section the reader is looking at, with its text as shown on the page. Wikipedia's plain-text export
-  // drops charts, family trees and many tables, so the page itself is the reliable source for "this section".
-  function visibleSection() {
-    let current = null;
-    const stack = [];
-    for (const h of headings()) {
-      if (h.getBoundingClientRect().top >= window.innerHeight * 0.35) break;
-      const level = Number(h.tagName[1]);
-      while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
-      stack.push({ level, name: headingText(h) });
-      current = h;
-    }
-    if (!current) return { name: 'Introduction', path: 'Introduction', text: '' };
-
-    const level = Number(current.tagName[1]);
-    const parts = [];
-    let length = 0;
-    for (let el = (current.closest('.mw-heading') || current).nextElementSibling; el && length < 8000; el = el.nextElementSibling) {
-      const l = headingLevel(el);
-      if (l && l <= level) break;
-      if (el.matches('style, script, .navbox, .reflist, .mw-references-wrap, .mw-editsection')) continue;
-      const text = (l ? `\n${cleanText(el)}\n` : el.innerText || el.textContent)
-        .replace(/\[\d+\]|\[citation needed\]|\[[a-z]\]|\[edit\]/g, '')
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\n\s*\n+/g, '\n')
-        .trim();
-      if (!text) continue;
-      parts.push(text);
-      length += text.length;
-    }
-    return { name: stack[stack.length - 1].name, path: stack.map((x) => x.name).join(' › '), text: parts.join('\n').slice(0, 8000) };
-  }
-
-  function cleanText(el) {
-    return el.textContent.replace(/\[\d+\]|\[citation needed\]|\[[a-z]\]/g, '').replace(/\s+/g, ' ').trim();
-  }
-
-  function contextSentence(a) {
-    const block = a.closest('p, li, td, th, dd, figcaption, caption');
-    if (!block) return a.textContent.trim();
-    const text = cleanText(block);
-    const i = text.indexOf(a.textContent.trim());
-    if (i < 0) return text.slice(0, 240);
-    const before = text.lastIndexOf('. ', i);
-    const start = Math.max(before < 0 ? 0 : before + 2, i - 200);
-    const after = text.indexOf('. ', i + a.textContent.length);
-    const end = Math.min(after < 0 ? text.length : after + 1, i + 260);
-    return text.slice(start, end);
-  }
-
-  // Where a link sits says a lot about how related it is: navigation boxes list a topic's members,
-  // infoboxes hold key facts, and "Main article:" notes point to a section's own article.
-  function linkSignal(el) {
-    const nav = el.closest('.navbox');
-    if (nav) {
-      let outer = nav;
-      while (outer.parentElement?.closest('.navbox')) outer = outer.parentElement.closest('.navbox');
-      const titleEl = (outer.querySelector('.navbox-title') || outer).cloneNode(true);
-      titleEl.querySelectorAll('.navbar').forEach((n) => n.remove()); // the "v · t · e" links
-      const box = cleanText(titleEl).slice(0, 80);
-      const group = el.closest('td.navbox-list')?.previousElementSibling;
-      const label = group?.matches('th.navbox-group') ? cleanText(group) : '';
-      return { kind: 'navbox', box, context: `Navigation box "${box}"${label ? ` › ${label}` : ''}` };
-    }
-    const row = el.closest('.infobox tr');
-    if (row) {
-      const th = row.querySelector('th');
-      return { kind: 'infobox', context: `Infobox: ${th ? cleanText(th) + ': ' : ''}${cleanText(row.querySelector('td') || row).slice(0, 160)}` };
-    }
-    const hat = el.closest('.hatnote');
-    if (hat) {
-      const text = cleanText(hat);
-      return { kind: /^(main articles?|further information)\b/i.test(text) ? 'main' : 'hatnote', context: text.slice(0, 200) };
-    }
-    return null;
-  }
-
-  function collectLinks() {
-    if (state.links) return state.links;
-    const map = new Map();
-    let section = 'Introduction';
-    for (const el of article.querySelectorAll('h2, h3, h4, a[href]')) {
-      if (el.tagName !== 'A') {
-        section = headingText(el);
-        continue;
-      }
-      if (el.classList.contains('mw-selflink') || el.closest(SKIP_LINK_AREAS)) continue;
-      const url = new URL(el.href, location.href);
-      const m = url.pathname.match(/^\/wiki\/([^#?]+)/);
-      if (!m || !url.hostname.endsWith('wikipedia.org') || url.search) continue; // skips red links (?action=edit)
-      const target = decodeURIComponent(m[1]).replace(/_/g, ' ');
-      if (NON_ARTICLE_NS.test(target) || target === title) continue;
-      const entry = map.get(target) || { title: target, count: 0, prose: [], other: [], sections: [], anchors: [], signals: new Set(), navboxes: new Set() };
-      const anchor = el.textContent.trim();
-      if (anchor && anchor !== target && !entry.anchors.includes(anchor) && entry.anchors.length < 3) entry.anchors.push(anchor);
-      let signal = linkSignal(el);
-      if (!signal && W.sections.isSeeAlso(section)) signal = { kind: 'seealso', context: `Listed under "${section}"` };
-      if (signal) {
-        entry.signals.add(signal.kind);
-        if (signal.box) entry.navboxes.add(signal.box);
-      }
-      // Only mentions in the article's own text count; navigation boxes and back matter list links wholesale.
-      const inText = !signal && !isBackMatter(section);
-      if (inText || signal?.kind === 'main' || signal?.kind === 'infobox') entry.count++;
-      if (inText) {
-        if (entry.prose.length < 2) entry.prose.push(contextSentence(el));
-        if (!entry.sections.includes(section) && entry.sections.length < 3) entry.sections.push(section);
-      } else if (signal && entry.other.length < 2) entry.other.push(signal.context);
-      map.set(target, entry);
-    }
-    state.links = [...map.values()].map((e) => ({
-      title: e.title,
-      anchors: e.anchors,
-      count: e.count,
-      context: [...e.prose, ...e.other].slice(0, 2).join(' … '),
-      sections: e.sections,
-      signals: [...e.signals],
-      navboxes: [...e.navboxes],
-    }));
-    return state.links;
-  }
-
-  // The revision on screen, from the page's inline config (the content script can't reach mw.config).
-  const pageRevid = (() => {
-    for (const el of document.querySelectorAll('script:not([src])')) {
-      const m = el.textContent.match(/"wgRevisionId"\s*:\s*(\d+)/);
-      if (m) return Number(m[1]);
-    }
-    return 0;
-  })();
-  // A source quoted from another revision than the one on screen: its text may have changed since.
-  const otherRevision = (src) => !!(src.revid && pageRevid && src.revid !== pageRevid);
-
-  function pageInfo() {
-    return {
-      lang,
-      title,
-      revid: pageRevid,
-      url: canonical,
-      links: collectLinks(),
-      categories: [...document.querySelectorAll('#mw-normal-catlinks li a')].map((a) => a.textContent.trim()),
-      visibleSection: visibleSection(), // {name, path, text}
-    };
-  }
-
-  // ---------- Highlighting a cited passage in the page ----------
-
-  let textMap = null;
-  function buildTextMap() {
-    if (textMap) return textMap;
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) =>
-        n.parentElement?.closest('sup.reference, .mw-editsection, style, script, .navbox, .reflist, .mw-references-wrap')
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_ACCEPT,
-    });
-    let text = '';
-    const nodes = [];
-    const offsets = [];
-    let space = true;
-    for (let n; (n = walker.nextNode()); ) {
-      const d = n.data;
-      for (let i = 0; i < d.length; i++) {
-        let ch = d[i];
-        if (/\s/.test(ch)) {
-          if (space) continue;
-          ch = ' ';
-          space = true;
-        } else space = false;
-        text += ch.toLowerCase();
-        nodes.push(n);
-        offsets.push(i);
-      }
-    }
-    textMap = { text, nodes, offsets };
-    return textMap;
-  }
-
-  const norm = (s) => s.replace(/\s+/g, ' ').toLowerCase().trim();
-
-  function locate(sourceText) {
-    const map = buildTextMap();
-    const sentences = (sourceText.match(/[^.!?]+[.!?]*/g) || [sourceText]).map(norm).filter((s) => s.length > 20);
-    let start = -1;
-    for (const s of sentences.slice(0, 6)) {
-      for (const probe of [s.slice(0, 60), s.slice(0, 30), s.slice(Math.floor(s.length / 2), Math.floor(s.length / 2) + 30)]) {
-        if (probe.length < 15) continue;
-        start = map.text.indexOf(probe);
-        if (start >= 0) break;
-      }
-      if (start >= 0) break;
-    }
-    if (start < 0) return null;
-    let end = start + Math.min(norm(sourceText).length, 400);
-    const tail = norm(sourceText).slice(-40);
-    const tailAt = map.text.indexOf(tail, start);
-    if (tailAt >= 0 && tailAt - start < 4000) end = tailAt + tail.length;
-    end = Math.min(end, map.text.length);
-    const range = document.createRange();
-    range.setStart(map.nodes[start], map.offsets[start]);
-    range.setEnd(map.nodes[end - 1], map.offsets[end - 1] + 1);
-    return range;
-  }
-
-  // A cited table passage ("Table: …", then "76 | Os | Osmium | …" rows) or infobox passage ("Born: …" lines):
-  // the range from its first to its last row on the page, found by the rows' leading values or labels.
-  // An image passage: its picture with the caption, found by the file name.
-  function locateRows(sourceText) {
-    const [head, ...lines] = sourceText.split('\n').filter((l) => !l.startsWith('Columns: '));
-    if (head.startsWith('Figure')) {
-      const file = lines.find((l) => l.startsWith('File: '))?.slice(6).replace(/ /g, '_');
-      const link = file && [...article.querySelectorAll('a.mw-file-description')].find((a) => decodeURIComponent(a.getAttribute('href') || '').endsWith(`:${file}`));
-      const box = link?.closest('figure, .gallerybox, td') || link;
-      if (!box) return null;
-      const range = document.createRange();
-      range.selectNode(box);
-      return range;
-    }
-    const n = (t) => t.replace(/\s+/g, ' ').trim().toLowerCase();
-    const cellText = (c) => n(c.textContent.replace(/\[[^\]]{1,4}\]/g, '')); // without "[12]" footnote marks
-    let rows = [];
-    if (head.startsWith('Infobox')) {
-      const labels = new Set(lines.map((l) => n(l.split(': ')[0])));
-      rows = [...article.querySelectorAll('.infobox tr')].filter((tr) => {
-        const th = tr.querySelector('th');
-        return th && labels.has(cellText(th));
-      });
-    } else if (head.startsWith('Table')) {
-      const wanted = lines.map((l) => l.split(' | ').map(n).filter(Boolean).slice(0, 3)).filter((v) => v.length > 1);
-      const trs = [...article.querySelectorAll('table.wikitable tr')];
-      rows = trs.filter((tr) => {
-        const cells = [...tr.children].map(cellText);
-        return wanted.some((v) => cells[0] === v[0] && v.slice(1).every((x) => cells.some((c) => c.includes(x))));
-      });
-    }
-    if (!rows.length) return null;
-    const range = document.createRange();
-    range.setStartBefore(rows[0]);
-    range.setEndAfter(rows[rows.length - 1]);
-    return range;
-  }
-
-  function highlightSource(src) {
-    let range = null;
-    try {
-      range = /^(Table|Infobox|Figure)\b/.test(src.text) ? locateRows(src.text) : locate(src.text);
-    } catch {
-      // the page changed under us: show the passage without a highlight
-    }
-    if (range) {
-      if (globalThis.CSS?.highlights && globalThis.Highlight) CSS.highlights.set('wikiai-cite', new Highlight(range));
-      const start = range.startContainer;
-      const el = start.nodeType === Node.ELEMENT_NODE ? start.childNodes[range.startOffset] || start : start.parentElement; // a table row, or text
-      openCollapsedAncestors(el);
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return true;
-    }
-    // The passage may have changed since it was quoted; the preview says so instead of guessing a place.
-    if (otherRevision(src)) return false;
-    const h = headings().find((x) => headingText(x) === src.section.split(' › ').pop());
-    if (h) {
-      openCollapsedAncestors(h);
-      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return true;
-    }
-    return false;
-  }
-
-  function openCollapsedAncestors(el) {
-    for (let d = el.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true;
-  }
-
-  // Quoted Wikipedia text is CC BY-SA: name the source and the licence wherever it's shown.
-  const LICENSE_URL = 'https://creativecommons.org/licenses/by-sa/4.0/';
-  const licenseLine = (page, url) =>
-    `<div class="license">Text from <a href="${url}" target="_blank" rel="noopener noreferrer">${W.markdown.esc(page ? `Wikipedia: ${page}` : 'Wikipedia')}</a>, <a href="${LICENSE_URL}" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a></div>`;
-
-  function articleUrl(src) {
-    return `https://${src.lang}.wikipedia.org/wiki/${encodeURIComponent(src.page.replace(/ /g, '_'))}`;
-  }
-
-  // The revision a passage was quoted from, so the link shows the text that was cited.
-  const versionUrl = (src) => (src.revid ? `https://${src.lang}.wikipedia.org/w/index.php?oldid=${src.revid}` : articleUrl(src));
-
-  // A text fragment that finds the passage on the page. Table, infobox and figure passages start with labels
-  // the page doesn't show ("Table: …"), so they're found by a cell, a value or the caption instead; prose by
-  // its first and last words, which survives small edits in between.
-  const fragmentText = (t) => encodeURIComponent(t).replace(/-/g, '%2D');
-  const firstWords = (t, n) => t.replace(/\s+/g, ' ').trim().split(' ').slice(0, n).join(' ');
-  function textFragment(src) {
-    const [head = '', ...rest] = src.text.split('\n').filter((l) => !/^(Columns|File|Categories|Description): /.test(l));
-    let start = '';
-    let end = '';
-    if (head.startsWith('Infobox')) start = firstWords(rest[0]?.split(': ').slice(1).join(': ') || '', 3);
-    else if (head.startsWith('Table')) start = firstWords(rest[0]?.split(' | ').find((c) => c.trim().length >= 3) || '', 4);
-    else if (head.startsWith('Figure')) start = firstWords(head.replace(/^Figure:\s*/, ''), 5);
-    else {
-      const words = src.text.replace(/\$[^$\n]*\$/g, ' ').replace(/\s+/g, ' ').trim().split(' ');
-      [start, end] = words.length > 10 ? [words.slice(0, 4).join(' '), words.slice(-4).join(' ')] : [words.join(' '), ''];
-    }
-    return start ? `#:~:text=${fragmentText(start)}${end ? `,${fragmentText(end)}` : ''}` : '';
-  }
-
-  function linkedUrl(src) {
-    return `${versionUrl(src)}${textFragment(src)}`;
-  }
 
   // ---------- UI ----------
 
@@ -439,16 +106,34 @@
     ::highlight(wikiai-cite) { background-color: rgba(255, 196, 0, 0.45); color: inherit; }
     html.wikiai-open body { margin-right: ${PANEL_WIDTH}px !important; }
     html.wikiai-open .vector-sticky-header { right: ${PANEL_WIDTH}px !important; width: auto !important; }
+    /* Vector lays out its header by the window's width, not the page's, so with the page pushed aside the account
+       links wrap to a second line (longer on de and other wikis). Move them into the user menu the way Vector does
+       on narrow screens (below 1120px). */
+    @media (max-width: ${PANEL_WIDTH + 1120}px) {
+      html.wikiai-open .vector-header .vector-user-links-main .vector-menu-item--collapsible { display: none !important; }
+      html.wikiai-open .vector-header .vector-user-menu { display: block !important; }
+      html.wikiai-open .vector-header .vector-user-menu .vector-menu-item--collapsible { display: list-item !important; }
+    }
     html.wikiai-open, html.wikiai-open body { overflow: auto !important; }
     /* Wide data tables scroll on their own instead of running under the panel. */
     html.wikiai-open .mw-parser-output table.wikitable { display: block; max-width: 100%; overflow-x: auto; }`;
   document.head.appendChild(pageStyle);
-  // KaTeX's fonts: Chrome ignores @font-face inside a shadow root, so the page loads them too (its rules only
-  // touch .katex elements, which Wikipedia doesn't use).
-  const katexFonts = document.createElement('link');
-  katexFonts.rel = 'stylesheet';
-  katexFonts.href = chrome.runtime.getURL('vendor/katex/katex.min.css');
-  document.head.appendChild(katexFonts);
+  // KaTeX (270 kB) loads the first time an answer has a formula, not on every article; the messages are then drawn
+  // again. Its fonts: Chrome ignores @font-face inside a shadow root, so the page loads them too (its rules only
+  // touch .katex elements, which Wikipedia doesn't use). If it can't load, formulas stay as text.
+  let katexLoading = null;
+  W.markdown.onMath = () => {
+    katexLoading ||= import(chrome.runtime.getURL('vendor/katex/katex.min.js'))
+      .then(() => {
+        if (!globalThis.katex) throw new Error('KaTeX did not load');
+        const fonts = document.createElement('link');
+        fonts.rel = 'stylesheet';
+        fonts.href = chrome.runtime.getURL('vendor/katex/katex.min.css');
+        document.head.appendChild(fonts);
+        render(true);
+      })
+      .catch((e) => console.warn('Wiki AI: formulas stay as text', e));
+  };
 
   const $ = (sel) => root.querySelector(sel);
   const panel = $('.panel');
@@ -636,11 +321,11 @@
     renderTopic();
   }
   // l: the Wikipedia the article is on; a topic's articles can be in another language than this page.
-  const wikiUrl = (t, l = lang) => `https://${l}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
+  const wikiUrl = (t, l = lang) => W.text.articleUrl(l, t);
 
   const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
-  const esc = (v) => W.markdown.esc(String(v ?? ''));
-  const normQ = (q) => W.markdown.plain(q).toLowerCase().replace(/\s+/g, ' ').trim();
+  const esc = (v) => W.text.esc(v);
+  const normQ = (q) => W.text.plain(q).toLowerCase().replace(/\s+/g, ' ').trim();
   const DOC_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>`;
   const CHAT_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>`;
   const MAP_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="5" r="2"/><circle cx="20" cy="5" r="2"/><circle cx="4" cy="19" r="2"/><circle cx="20" cy="19" r="2"/><path d="M9.6 10.2L5.5 6.4M14.4 10.2l4.1-3.8M9.6 13.8l-4.1 3.8M14.4 13.8l4.1 3.8"/></svg>`;
@@ -729,7 +414,7 @@
     for (const c of byRecent) {
       c.messages.forEach((m, i) => {
         if (m.role !== 'assistant' || !m.followups?.length) return;
-        const items = m.followups.map((q) => W.markdown.plain(q)).filter((q) => !asked.has(normQ(q)) && !seen.has(normQ(q)));
+        const items = m.followups.map((q) => W.text.plain(q)).filter((q) => !asked.has(normQ(q)) && !seen.has(normQ(q)));
         items.forEach((q) => seen.add(normQ(q)));
         if (items.length) groups.push({ convId: c.id, from: c.messages[i - 1]?.content || c.title, items });
       });
@@ -1101,7 +786,7 @@
     const here = state.convs
       .filter((c) => c.messages.length && match(c))
       .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
-      .map((c) => row({ id: c.id, title: c.title, questions: c.messages.filter((m) => m.role === 'user').length, updatedAt: c.updatedAt || c.createdAt, here: c.id === conv()?.id, running: state.request === c }));
+      .map((c) => row({ id: c.id, title: c.title, questions: c.messages.filter((m) => m.role === 'user').length, updatedAt: c.updatedAt || c.createdAt, here: c.id === conv()?.id, running: state.request === c, scope: null }));
     for (const c of state.allChats) {
       if (c.scope === state.scope && !convById(c.id) && match(c)) here.push(row(c)); // saved in another tab
     }
@@ -1161,7 +846,7 @@
       applyPendingChat();
       return;
     }
-    const url = `https://${l}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
+    const url = W.text.articleUrl(l, t);
     const list = (await handoffStore.get()).filter((h) => Date.now() - h.at < HANDOFF_MS).slice(-4);
     list.push({ path: pathOf(url), view: 'chat', chat: id, scope, at: Date.now() });
     await handoffStore.set(list);
@@ -1169,89 +854,6 @@
   }
 
   const W_ADDED = 'Added by you';
-  // Starter questions in the answer language (Settings › Answer language); English for other languages.
-  const PHRASES = {
-    en: {
-      summary: 'Summarize this article in a few bullet points',
-      summaryOf: (t) => `Summarize “${t}” in a few bullet points`,
-      explain: (x) => `Explain the section “${x}”`,
-      meanings: (t) => `Which meanings of “${t}” are listed here?`,
-      whatIs: (x) => `What is “${x}”?`,
-      section: 'Explain the section I am reading',
-      readNext: 'Which linked articles should I read next, and why?',
-      overview: 'Give me an overview of this topic and its main themes',
-      connect: (a, b) => `How is “${a}” connected to “${b}”?`,
-      connected: 'How are the articles in this topic connected?',
-      theme: (c) => `What should I know about “${c}”?`,
-      readFirst: 'Which articles in this topic should I read first, and why?',
-      fit: (x) => `How does ${x} fit into this topic?`,
-      about: (x) => `Tell me about ${x} and how it connects to the rest of this topic.`,
-    },
-    de: {
-      summary: 'Fasse diesen Artikel in ein paar Stichpunkten zusammen',
-      summaryOf: (t) => `Fasse „${t}“ in ein paar Stichpunkten zusammen`,
-      explain: (x) => `Erkläre den Abschnitt „${x}“`,
-      meanings: (t) => `Welche Bedeutungen von „${t}“ werden hier aufgeführt?`,
-      whatIs: (x) => `Was ist „${x}“?`,
-      section: 'Erkläre den Abschnitt, den ich gerade lese',
-      readNext: 'Welche verlinkten Artikel sollte ich als Nächstes lesen, und warum?',
-      overview: 'Gib mir einen Überblick über dieses Thema und seine wichtigsten Schwerpunkte',
-      connect: (a, b) => `Wie hängt „${a}“ mit „${b}“ zusammen?`,
-      connected: 'Wie hängen die Artikel dieses Themas zusammen?',
-      theme: (c) => `Was sollte ich über „${c}“ wissen?`,
-      readFirst: 'Welche Artikel dieses Themas sollte ich zuerst lesen, und warum?',
-      fit: (x) => `Wie passt ${x} in dieses Thema?`,
-      about: (x) => `Erzähl mir von ${x} und wie es mit dem Rest dieses Themas zusammenhängt.`,
-    },
-    fr: {
-      summary: 'Résume cet article en quelques points',
-      summaryOf: (t) => `Résume « ${t} » en quelques points`,
-      explain: (x) => `Explique la section « ${x} »`,
-      meanings: (t) => `Quels sens de « ${t} » sont listés ici ?`,
-      whatIs: (x) => `Qu'est-ce que « ${x} » ?`,
-      section: 'Explique la section que je lis',
-      readNext: 'Quels articles liés devrais-je lire ensuite, et pourquoi ?',
-      overview: "Donne-moi une vue d'ensemble de ce sujet et de ses thèmes principaux",
-      connect: (a, b) => `Quel est le lien entre « ${a} » et « ${b} » ?`,
-      connected: 'Quels liens existent entre les articles de ce sujet ?',
-      theme: (c) => `Que faut-il savoir sur « ${c} » ?`,
-      readFirst: 'Quels articles de ce sujet devrais-je lire en premier, et pourquoi ?',
-      fit: (x) => `Quelle place occupe ${x} dans ce sujet ?`,
-      about: (x) => `Parle-moi de ${x} et de ses liens avec le reste de ce sujet.`,
-    },
-    es: {
-      summary: 'Resume este artículo en unos pocos puntos',
-      summaryOf: (t) => `Resume «${t}» en unos pocos puntos`,
-      explain: (x) => `Explica la sección «${x}»`,
-      meanings: (t) => `¿Qué significados de «${t}» aparecen aquí?`,
-      whatIs: (x) => `¿Qué es «${x}»?`,
-      section: 'Explica la sección que estoy leyendo',
-      readNext: '¿Qué artículos enlazados debería leer a continuación y por qué?',
-      overview: 'Dame una visión general de este tema y sus aspectos principales',
-      connect: (a, b) => `¿Qué relación hay entre «${a}» y «${b}»?`,
-      connected: '¿Cómo se relacionan los artículos de este tema?',
-      theme: (c) => `¿Qué debería saber sobre «${c}»?`,
-      readFirst: '¿Qué artículos de este tema debería leer primero y por qué?',
-      fit: (x) => `¿Qué papel tiene ${x} en este tema?`,
-      about: (x) => `Háblame de ${x} y de su relación con el resto de este tema.`,
-    },
-    it: {
-      summary: 'Riassumi questo articolo in pochi punti',
-      summaryOf: (t) => `Riassumi «${t}» in pochi punti`,
-      explain: (x) => `Spiega la sezione «${x}»`,
-      meanings: (t) => `Quali significati di «${t}» sono elencati qui?`,
-      whatIs: (x) => `Che cos'è «${x}»?`,
-      section: 'Spiega la sezione che sto leggendo',
-      readNext: 'Quali articoli collegati dovrei leggere dopo, e perché?',
-      overview: 'Dammi una panoramica di questo argomento e dei suoi temi principali',
-      connect: (a, b) => `Che legame c'è tra «${a}» e «${b}»?`,
-      connected: 'Come sono collegati gli articoli di questo argomento?',
-      theme: (c) => `Cosa dovrei sapere su «${c}»?`,
-      readFirst: 'Quali articoli di questo argomento dovrei leggere per primi, e perché?',
-      fit: (x) => `Che ruolo ha ${x} in questo argomento?`,
-      about: (x) => `Parlami di ${x} e di come si collega al resto di questo argomento.`,
-    },
-  };
 
   // The answer language for this page: the setting, resolved against the article's and browser's language.
   // "Same as my question" uses the browser's language for the starter questions.
@@ -1259,13 +861,14 @@
     const choice = state.answerLanguage || 'browser';
     const browser = (navigator.language || 'en').split('-')[0].toLowerCase();
     const code = choice === 'article' ? lang : choice === 'browser' || choice === 'question' ? browser : choice;
-    return PHRASES[code] || PHRASES.en;
+    return W.phrases.get(code);
   }
 
   async function loadLanguage() {
     try {
       const s = await chrome.runtime.sendMessage({ type: 'getSettings' });
       state.answerLanguage = s?.answerLanguage || 'browser';
+      state.verifyCitations = !!s?.verifyCitations;
       // Shown above the chat until the reader dismisses it once.
       state.notice = s?.recipient && !s.noticeSeen ? { recipient: s.recipient, privacyUrl: s.privacyUrl } : null;
     } catch {
@@ -1375,16 +978,17 @@
 
   // Replaces only the children whose HTML changed: while an answer streams in, that's the one message being
   // written, so the rest keep their focus, open details and screen-reader position. Each part is one element.
+  const drawn = new WeakMap(); // element → the HTML it was drawn from
   function patchChildren(container, parts) {
     const focused = focusKey(container);
     const kids = [...container.children];
     const tpl = document.createElement('template');
     parts = parts.filter(Boolean);
     parts.forEach((html, i) => {
-      if (kids[i]?.__html === html) return;
+      if (kids[i] && drawn.get(kids[i]) === html) return;
       tpl.innerHTML = html;
       const el = tpl.content.firstElementChild;
-      el.__html = html;
+      drawn.set(el, html);
       if (kids[i]) kids[i].replaceWith(el);
       else container.appendChild(el);
     });
@@ -1394,9 +998,9 @@
 
   // Enough to find the focused control again after its message was redrawn.
   function focusKey(container) {
-    const el = root.activeElement;
+    const el = /** @type {HTMLElement | null} */ (root.activeElement);
     if (!el || !container.contains(el)) return null;
-    return { i: el.closest('.msg')?.dataset.i, cls: el.classList[0], n: el.dataset.n, q: el.dataset.q, tag: el.tagName };
+    return { i: /** @type {HTMLElement | null} */ (el.closest('.msg'))?.dataset.i, cls: el.classList[0], n: el.dataset.n, q: el.dataset.q, tag: el.tagName };
   }
   function restoreFocus(container, k) {
     const scope = k.i != null ? container.querySelector(`.msg[data-i="${k.i}"]`) : container;
@@ -1413,7 +1017,7 @@
     liveEl.textContent = '';
     setTimeout(() => (liveEl.textContent = text), 50);
   }
-  const spoken = (md) => W.markdown.plain(md || '').replace(/\s*(?:\[|【)\s*\d+(?:\s*[,;]\s*\d+)*\s*(?:\]|】)/g, '').replace(/[#*$]/g, '').slice(0, 1500);
+  const spoken = (md) => W.text.plain(md || '').replace(W.text.CITE, '').replace(/[#*$]/g, '').slice(0, 1500);
 
   // A new question goes to the top, and stays there as its answer streams in, so the answer is read from its start.
   function questionTop() {
@@ -1448,13 +1052,13 @@
       if (!groups.has(s.page)) groups.set(s.page, []);
       groups.get(s.page).push(s);
     }
-    const esc = W.markdown.esc;
+    const esc = W.text.esc;
     return `<div class="sources" role="group" aria-label="Sources (arrow keys move between them)">${[...groups]
       .map(([page, items]) => {
         const first = items[0];
         const pageEl = isHere(first)
           ? `<span class="page-name">${esc(page)}</span><span class="tag">this article</span>`
-          : `<a class="page-name" href="${articleUrl(first)}" target="_blank" rel="noopener" title="Open “${esc(page)}”">${esc(page)} ↗</a>`;
+          : `<a class="page-name" href="${articleUrl(first)}" target="_blank" rel="noopener noreferrer" title="Open “${esc(page)}”">${esc(page)} ↗</a>`;
         const where = (s) => s.section.split(' › ').pop();
         // Several passages from one section: tell them apart by their opening words.
         const repeated = (s) => items.filter((x) => where(x) === where(s)).length > 1;
@@ -1471,36 +1075,47 @@
       .join('')}${licenseLine('', `https://${lang}.wikipedia.org/`)}</div>`;
   }
 
+  // How long an answer took and what the citation check added, with the switch for the next answers, so the two can
+  // be compared on the same questions.
+  const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
+  function timingLine(m) {
+    const t = m.timing;
+    if (!t) return '';
+    const check = t.checked ? ` (citation check ${seconds(t.checkMs)})` : '';
+    const toggle = `<button class="link toggle-check" title="${state.verifyCitations ? 'Answer without the extra check by the model' : 'Have the model check each cited sentence against its passages (one more request per answer)'}">${state.verifyCitations ? 'Turn citation check off' : 'Turn citation check on'}</button>`;
+    return ` · ${seconds(t.ms)}${check} · ${toggle}`;
+  }
+
   function renderMessage(m, i) {
     if (m.role === 'user') {
-      const quote = m.quote ? `<blockquote>${W.markdown.esc(m.quote.text.slice(0, 280))}${m.quote.text.length > 280 ? '…' : ''}</blockquote>` : '';
-      return `<div class="msg user">${quote}<div class="bubble">${W.markdown.esc(m.content)}</div></div>`;
+      const quote = m.quote ? `<blockquote>${W.text.esc(m.quote.text.slice(0, 280))}${m.quote.text.length > 280 ? '…' : ''}</blockquote>` : '';
+      return `<div class="msg user">${quote}<div class="bubble">${W.text.esc(m.content)}</div></div>`;
     }
     const steps = m.steps?.length
-      ? `<details class="steps"${m.stepsOpen ?? m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${W.markdown.esc(s)}</li>`).join('')}</ul></details>`
+      ? `<details class="steps"${m.stepsOpen ?? m.pending ? ' open' : ''}><summary>${m.steps.length} research step${m.steps.length > 1 ? 's' : ''}</summary><ul>${m.steps.map((s) => `<li>${W.text.esc(s)}</li>`).join('')}</ul></details>`
       : '';
-    const reasoning = m.reasoning ? `<details class="reasoning"${m.reasoningOpen ? ' open' : ''}><summary>Thinking</summary><div>${W.markdown.esc(m.reasoning)}</div></details>` : '';
+    const reasoning = m.reasoning ? `<details class="reasoning"${m.reasoningOpen ? ' open' : ''}><summary>Thinking</summary><div>${W.text.esc(m.reasoning)}</div></details>` : '';
     const flagged = m.pending ? [] : m.unsupported || [];
     // Sources are numbered across the chat; each answer shows its own as 1, 2, 3… in the order it cites them.
-    const cited = m.pending ? [] : W.markdown.citedNumbers(m.content || '').filter(known);
+    const cited = m.pending ? [] : W.text.citedNumbers(m.content || '').filter(known);
     const labelOf = new Map(cited.map((n, k) => [n, k + 1]));
     const attrs = (n) => ({ ...citeAttrs(n), label: labelOf.get(n) });
     const body = m.content ? `<div class="answer">${W.markdown.render(m.content, known, attrs, flagged)}</div>` : '';
     const grounding = flagged.length
       ? `<div class="grounding-note">${flagged.some((f) => f.kind !== 'uncited') ? "Underlined parts couldn't be matched to the Wikipedia sources." : 'Parts underlined in grey have no source number.'} Hover over them to see why.</div>`
       : '';
-    const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.markdown.esc(m.status || 'Thinking')}</div>` : '';
+    const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${W.text.esc(m.status || 'Thinking')}${m.words ? ` <span class="words">· ${m.words} words</span>` : ''}</div>` : '';
     const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
     const error = m.error
-      ? `<div class="error">${W.markdown.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}${m.model ? '' : debug}</div>`
+      ? `<div class="error">${W.text.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}${m.model ? '' : debug}</div>`
       : '';
     const sources = cited.length ? renderSourceGroups(cited, labelOf) : '';
     const figures = cited.length ? renderFigures(cited, labelOf) : '';
-    const meta = m.model && !m.pending ? `<div class="meta">${W.markdown.esc(m.model)}${debug}</div>` : '';
+    const meta = m.model && !m.pending ? `<div class="meta">${W.text.esc(m.model)}${timingLine(m)}${debug}</div>` : '';
     const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
     const followups = !m.pending && m.followups?.length
       ? `<div class="followups"><div class="fu-label">Ask next</div>${m.followups
-          .map((q) => W.markdown.plain(q))
+          .map((q) => W.text.plain(q))
           .map((q) =>
             askedHere.has(normQ(q))
               ? `<div class="followup asked"><span aria-hidden="true">✓</span> ${esc(q)}</div>`
@@ -1513,7 +1128,7 @@
 
   // Images the answer cites, with their caption and credit (Commons licences ask for the author and licence).
   function renderFigures(numbers, labelOf) {
-    const esc = W.markdown.esc;
+    const esc = W.text.esc;
     const figs = numbers.map((n) => conv().sources[n - 1]).filter((s) => s?.figure?.thumb).slice(0, 3);
     if (!figs.length) return '';
     return `<div class="answer-figures">${figs
@@ -1522,7 +1137,7 @@
         const credit = [f.artist, f.license].filter(Boolean).join(' · ');
         return `<figure class="answer-figure">
           <button class="figure-img" data-n="${s.n}" data-label="${labelOf.get(s.n)}" title="${isHere(s) ? 'Show in the article' : `From “${esc(s.page)}”`}"><img src="${esc(f.thumb)}" alt="${esc(f.caption || f.description || f.file)}" loading="lazy"></button>
-          <figcaption><span class="num">${labelOf.get(s.n)}</span> ${esc(truncate(f.caption || f.description || f.file, 160))}${credit ? ` <a class="credit" href="${esc(f.url || '')}" target="_blank" rel="noopener">${esc(credit)}</a>` : ''}</figcaption>
+          <figcaption><span class="num">${labelOf.get(s.n)}</span> ${esc(truncate(f.caption || f.description || f.file, 160))}${credit ? ` <a class="credit" href="${esc(/^https:\/\//.test(f.url || '') ? f.url : '')}" target="_blank" rel="noopener noreferrer">${esc(credit)}</a>` : ''}</figcaption>
         </figure>`;
       })
       .join('')}</div>`;
@@ -1542,7 +1157,7 @@
     state.quote = quote;
     quoteEl.hidden = !quote;
     if (quote) {
-      quoteEl.innerHTML = `<span class="label">Selected text${quote.section ? ` · ${W.markdown.esc(quote.section)}` : ''}</span><span class="text">${W.markdown.esc(quote.text.slice(0, 200))}${quote.text.length > 200 ? '…' : ''}</span><button type="button" class="icon clear-quote" aria-label="Remove selection">×</button>`;
+      quoteEl.innerHTML = `<span class="label">Selected text${quote.section ? ` · ${W.text.esc(quote.section)}` : ''}</span><span class="text">${W.text.esc(quote.text.slice(0, 200))}${quote.text.length > 200 ? '…' : ''}</span><button type="button" class="icon clear-quote" aria-label="Remove selection">×</button>`;
     }
     renderTopic();
   }
@@ -1624,12 +1239,17 @@
     switch (msg.type) {
       case 'status':
         m.status = msg.text;
+        m.words = 0;
         announce(msg.text);
         break;
       case 'step':
         m.steps.push(msg.text);
         m.status = msg.text;
+        m.words = 0;
         announce(msg.text);
+        break;
+      case 'progress': // shown, not announced: a screen reader would read every update
+        m.words = msg.words;
         break;
       case 'trace':
         traces.set(m, msg.trace);
@@ -1645,6 +1265,7 @@
         m.pending = false;
         if (msg.answer) m.content = msg.answer;
         if (msg.model) m.model = msg.model;
+        if (msg.timing) m.timing = msg.timing;
         if (msg.followups?.length) m.followups = msg.followups;
         m.unsupported = msg.unsupported?.length ? msg.unsupported : undefined;
         if (msg.stopped && !m.content) m.error = 'Stopped.';
@@ -1706,22 +1327,22 @@
     previewEl.hidden = false;
     previewEl.innerHTML = `
       <div class="preview-head c${pageColor(src.page)}">
-        <span class="num">${W.markdown.esc(label)}</span>
+        <span class="num">${W.text.esc(label)}</span>
         <span class="preview-title">
-          <span class="page-name">${W.markdown.esc(src.page)}</span>
-          <span class="section-name">${W.markdown.esc(src.section)}</span>
+          <span class="page-name">${W.text.esc(src.page)}</span>
+          <span class="section-name">${W.text.esc(src.section)}</span>
         </span>
         <button class="icon close-preview" aria-label="Close preview">×</button>
       </div>
-      ${src.figure?.thumb ? `<img class="preview-img" src="${W.markdown.esc(src.figure.thumb)}" alt="">` : ''}
+      ${src.figure?.thumb ? `<img class="preview-img" src="${W.text.esc(src.figure.thumb)}" alt="">` : ''}
       ${isHere(src) && otherRevision(src) ? '<p class="preview-note">Quoted from another version of this article. The passage may have changed since, so it isn\'t highlighted on the page.</p>' : ''}
-      <div class="preview-text">${W.markdown.esc(src.text)}</div>
+      <div class="preview-text">${W.text.esc(src.text)}</div>
       ${licenseLine(src.page, articleUrl(src))}
       <div class="preview-actions">
         ${
           isHere(src) && !otherRevision(src)
             ? '<button class="link show-in-page">Show in article</button>'
-            : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener noreferrer">${isHere(src) ? 'Open the version quoted ↗' : `Open “${W.markdown.esc(src.page)}” ↗`}</a>`
+            : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener noreferrer">${isHere(src) ? 'Open the version quoted ↗' : `Open “${W.text.esc(src.page)}” ↗`}</a>`
         }
       </div>`;
     previewEl.dataset.n = src.n;
@@ -1786,7 +1407,7 @@
   );
 
   root.addEventListener('click', (e) => {
-    const t = e.target.closest('button, a');
+    const t = /** @type {HTMLElement | null} */ (/** @type {Element} */ (e.target).closest('button, a'));
     if (!t) return;
     if (t.matches('.cite, .source, .figure-img')) onCite(Number(t.dataset.n), t.dataset.label);
     else if (t.matches('.suggestion')) ask(t.textContent);
@@ -1819,6 +1440,14 @@
     } else if (t.matches('.go-map')) setView('map');
     else if (t.matches('.go-topic')) setView('topic');
     else if (t.matches('.open-settings')) openOptions();
+    else if (t.matches('.toggle-check')) {
+      const on = !state.verifyCitations;
+      send({ type: 'setVerifyCitations', on }).then(() => {
+        state.verifyCitations = on;
+        announce(on ? 'Citation check on for the next answers' : 'Citation check off for the next answers');
+        render();
+      }, () => announce("Couldn't change the setting"));
+    }
     else if (t.matches('.reload-page')) location.reload();
     else if (t.matches('.build-topic')) buildTopic();
     else if (t.matches('.chat-topic')) setScope(true).then(() => setView('chat'));
@@ -1928,7 +1557,7 @@
     document.addEventListener(
       type,
       (e) => {
-        const a = e.target.closest?.('a[href]');
+        const a = /** @type {Element} */ (e.target).closest?.('a[href]');
         if (a && !e.composedPath().includes(host)) noteLink(a);
       },
       true

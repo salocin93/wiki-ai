@@ -44,12 +44,17 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*.wikipedia.org/wiki/*"
+        "https://*.wikipedia.org/wiki/*",
+        "https://*.wikipedia.org/zh*/*",
+        "https://*.wikipedia.org/sr*/*",
+        "https://*.wikipedia.org/w/index.php*"
       ],
       "js": [
-        "vendor/katex/katex.min.js",
+        "lib/text.js",
         "lib/sections.js",
         "content/markdown.js",
+        "content/page.js",
+        "content/phrases.js",
         "content/map.js",
         "content/content.js"
       ],
@@ -60,6 +65,7 @@
     {
       "resources": [
         "content/sidebar.css",
+        "vendor/katex/katex.min.js",
         "vendor/katex/katex.min.css",
         "vendor/katex/fonts/*",
         "icons/mascot.svg",

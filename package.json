@@ -4,6 +4,7 @@
   "description": "Chrome extension: chat with an AI model about the Wikipedia article you're reading.",
   "scripts": {
     "lint": "eslint .",
+    "typecheck": "tsc -p .",
     "test": "node --test test/unit.test.mjs test/grounding-check.mjs test/tables-check.mjs",
     "package": "scripts/package.sh",
     "package:store": "scripts/package.sh --store"
@@ -12,6 +13,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "eslint": "^10.14.0"
+    "eslint": "^10.14.0",
+    "typescript": "^7.0.2"
   }
 }
