@@ -304,6 +304,25 @@ test('phrases: typed questions only where a section can answer them', async () =
   assert.equal(phraseBook.topicQuestion('en', 'mixed'), '');
 });
 
+test('agent: a search for words like "best known" reads the introduction instead', async () => {
+  const r = run();
+  r.current = {
+    page: { title: 'T' },
+    chunks: [
+      { lang: 'en', page: 'T', section: 'Introduction', text: 'T was a painter, known for sunflowers.' },
+      { lang: 'en', page: 'T', section: 'Flowers', text: 'The best sunflowers were painted in Arles.' },
+    ],
+  };
+  r.current.index = { search: () => [{ doc: r.current.chunks[1] }] };
+  r.toolTokens = 0;
+  r.systemBase = '';
+  const out = await r.tool('search_article', { query: 'best known' });
+  assert.match(out, /introduction/i);
+  assert.ok(out.includes('known for sunflowers') && !out.includes('Arles'));
+  assert.equal(r.describe('search_article', { query: 'best known' }), 'Reading the introduction');
+  assert.equal(r.describe('search_article', { query: 'sunflowers Arles' }), 'Searching this article for “sunflowers Arles”');
+});
+
 test('agent: a linked article named like part of this article is not read ahead', () => {
   const r = run({
     page: { lang: 'en', title: 'Vincent van Gogh', links: [{ title: 'Van Gogh (1948 film)' }, { title: 'Ada Lovelace (microarchitecture)' }, { title: 'Paul Gauguin' }, { title: 'Theo van Gogh (art dealer)' }] },
