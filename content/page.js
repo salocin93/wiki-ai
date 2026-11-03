@@ -23,6 +23,14 @@ export const pageDom = (() => {
   const pageRevid = revisionVar('wgRevisionId');
   const currentRevid = revisionVar('wgCurRevisionId');
   if (pageRevid && currentRevid && pageRevid !== currentRevid) return null;
+  // The article's Wikidata item ("Q7259"), which says what kind of subject it is (see lib/types.js).
+  const wikidataId = (() => {
+    for (const el of document.querySelectorAll('script:not([src])')) {
+      const m = el.textContent.match(/"wgWikibaseItemId"\s*:\s*"(Q\d+)"/);
+      if (m) return m[1];
+    }
+    return '';
+  })();
 
   const canonical = /** @type {HTMLLinkElement | null} */ (document.querySelector('link[rel=canonical]'))?.href || location.href;
   const pageUrl = new URL(canonical);
@@ -378,7 +386,7 @@ export const pageDom = (() => {
   }
 
   return {
-    article, canonical, lang, title, revid: pageRevid,
+    article, canonical, lang, title, revid: pageRevid, wikidataId,
     headings, headingText, sectionOf, visibleSection, isBackMatter, collectLinks, pageInfo,
     otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl,
   };

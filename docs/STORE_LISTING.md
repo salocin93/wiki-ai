@@ -44,6 +44,7 @@ Answer the reader's questions about the Wikipedia article they are reading, usin
 - **storage:** Saves the user's settings (AI provider, API key), their chats and topic clusters locally.
 - **contextMenus:** Adds "Ask Wiki AI about …" for text selected on a Wikipedia article.
 - **Host `https://*.wikipedia.org/*`:** Shows the sidebar on Wikipedia articles and reads Wikipedia articles through the Wikipedia API to answer questions.
+- **Host `https://query.wikidata.org/*`:** Looks up what kind of subject an article is about (person, place, event …) in Wikidata, to suggest questions that fit it. Only the article's Wikidata identifier is sent.
 - **Host `https://generativelanguage.googleapis.com/*`:** Sends the user's question to Google's Gemini API, the default AI provider, with the user's own API key.
 - **Optional hosts `https://*/*`, `http://*/*`:** Requested at runtime, only for the one address the user enters as their own AI provider (for example a local model server), when they click Test connection. Plain http is accepted only for this computer and the local network.
 - **Remote code:** None. All code, including the KaTeX math renderer, is in the package.

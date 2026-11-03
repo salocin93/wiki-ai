@@ -22,6 +22,7 @@ A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia ar
   - **Chat**: the conversation, with **History** (saved chats for this topic or article: reopen or delete) and **New chat**.
   - **Topic**: the active topic's themes and articles, saved topics, and **Questions to explore**.
   - **Map**: the topic's articles as a graph (colored by theme, sized by connections, lines for links). Click an article for its summary, open it, or ask about it; enlarge the map over the article area.
+- **Questions that fit the article.** The questions an empty chat suggests depend on what the article is about: a person (what they're known for, turning points, legacy), an event (causes, consequences), a work (how it came about, how it was received), a place, a group, a religion or a concept. The type comes from Wikidata. A question is only offered if the article has a section that can answer it. Topics get questions that fit their kind, such as "How did these people influence each other?" for a topic about people.
 - **Suggested next questions.** Every answer ends with three follow-up questions. Clicking one continues the same chat; asked ones get a ✓. Suggestions you haven't asked yet, from all your chats, collect under **Topic › Questions to explore**, and asking one there continues the chat it came from.
 - **Checked against its sources.** Before an answer is shown, each claim is compared with the passages it cites. Claims they don't back are sent back to the model once to fix, and whatever still isn't backed is left out; a collapsed note under the answer lists what was left out and why. With **Check citations with the model** on (Settings › Answers), the model itself judges each cited sentence, which is more accurate but adds a request per answer (its timing is in the answer's debug info).
 - **Falls back automatically.** If the main model is unavailable or rate-limited, it retries on the fallback model set in the settings.
@@ -36,7 +37,7 @@ content/page.js         the article on screen: links and their context, sections
                         highlighting a cited passage (CSS Custom Highlight API), links back to Wikipedia
 content/markdown.js     escape-first Markdown for answers; KaTeX is loaded on the first formula
 content/map.js          the topic map (no library)
-content/phrases.js      starter questions in several languages
+content/phrases.js      starter questions in several languages, fitted to the article's type or topic's kind
 background/             service worker: runs the agent per question over a runtime port, checks
                         who sends each message
 options/                settings page (provider, key, answer language, storage)
@@ -45,6 +46,7 @@ lib/wiki.js             Wikipedia API: plain-text article split into sections �
                         REST summaries; cached 24 h in IndexedDB
 lib/tables.js           tables, infoboxes and images from the article HTML as text (the extract drops them)
 lib/sections.js         names of reference and "See also" sections in many languages
+lib/types.js            what kind of subject an article is (person, place, event …), from Wikidata
 lib/bm25.js             keyword search over chunks and over links (no embedding model needed)
 lib/links.js            how central each linked article is (navigation boxes, infobox, introduction …)
 lib/agent.js            tool-calling loop, prompt budget, numbered sources

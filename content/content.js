@@ -12,7 +12,7 @@ import { topicMap } from './map.js';
   // The page itself (identity, sections, links, citations in it) is read by page.js; nothing to do where it
   // found no article.
   if (!pageDom) return;
-  const { article, canonical, lang, title, headings, headingText, sectionOf, visibleSection, isBackMatter, collectLinks, pageInfo,
+  const { article, canonical, lang, title, wikidataId, headings, headingText, sectionOf, visibleSection, isBackMatter, collectLinks, pageInfo,
     otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl } = pageDom;
   const PANEL_WIDTH = 420;
 
@@ -35,6 +35,7 @@ import { topicMap } from './map.js';
     allChats: [], // summaries of saved chats everywhere, for the history
     historyFilter: '',
     pendingChat: null, // a chat to open once its topic or article has loaded
+    pageType: null, // what kind of subject the article is ('person', 'event' …), from Wikidata; null until known
   };
 
   // ---------- UI ----------
@@ -261,6 +262,7 @@ import { topicMap } from './map.js';
     if (open) {
       render();
       refreshTopic();
+      loadPageType();
       if (focus) setTimeout(() => input.focus(), 0);
     }
   }
@@ -872,11 +874,26 @@ import { topicMap } from './map.js';
 
   // The answer language for this page: the setting, resolved against the article's and browser's language.
   // "Same as my question" uses the browser's language for the starter questions.
-  function phrases() {
+  function phraseCode() {
     const choice = state.answerLanguage || 'browser';
     const browser = (navigator.language || 'en').split('-')[0].toLowerCase();
-    const code = choice === 'article' ? lang : choice === 'browser' || choice === 'question' ? browser : choice;
-    return phraseBook.get(code);
+    return choice === 'article' ? lang : choice === 'browser' || choice === 'question' ? browser : choice;
+  }
+  const phrases = () => phraseBook.get(phraseCode());
+
+  // What kind of subject this article is (person, place, event …), asked once per page. The starter questions
+  // show at once and are redrawn to fit when the type arrives; if Wikidata can't be reached they stay general.
+  let pageTypeAsked = false;
+  function loadPageType() {
+    if (pageTypeAsked || !wikidataId) return;
+    pageTypeAsked = true;
+    send({ type: 'article:type', qid: wikidataId }).then(
+      (type) => {
+        state.pageType = type;
+        if (!conv()?.messages.length) render();
+      },
+      () => (pageTypeAsked = false) // try again next time the panel opens
+    );
   }
 
   async function loadLanguage() {
@@ -905,21 +922,24 @@ import { topicMap } from './map.js';
     const sections = headings().map(headingText).filter((h) => !isBackMatter(h));
     if (!sections.length) return [p.summaryOf(title), p.readNext];
     const vis = visibleSection().name;
+    const reading = vis !== 'Introduction' && !isBackMatter(vis);
+    // Questions that fit the kind of article (only those its sections can answer), then the section on screen.
+    const typed = phraseBook.typedQuestions(phraseCode(), state.pageType, title, sections);
+    if (typed.length) return [...typed, reading ? p.explain(vis) : p.summaryOf(title)];
     const top = [...linked].sort((a, b) => b.count - a.count)[0];
-    return [
-      p.summaryOf(title),
-      vis !== 'Introduction' && !isBackMatter(vis) ? p.explain(vis) : top ? p.connect(title, top.title) : p.section,
-      p.readNext,
-    ];
+    return [p.summaryOf(title), reading ? p.explain(vis) : top ? p.connect(title, top.title) : p.section, p.readNext];
   }
 
   function topicSuggestions(t) {
     const p = phrases();
     const [a, b, c] = t.facets.filter((f) => f.name !== W_ADDED && t.pages.some((x) => x.facet === f.name));
+    // A question that fits what the topic is about (its people, events, works …) takes the third theme's place.
+    const kind = phraseBook.topicQuestion(phraseCode(), t.kind);
     return [
       p.overview,
+      kind || null,
       a && b ? p.connect(a.name, b.name) : p.connected,
-      c ? p.theme(c.name) : null,
+      !kind && c ? p.theme(c.name) : null,
       title === t.seed || title === t.name ? p.readFirst : p.fit(title),
     ].filter(Boolean);
   }
