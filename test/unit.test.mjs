@@ -7,6 +7,7 @@ import { agent } from '../lib/agent.js';
 import { appSettings } from '../lib/settings.js';
 import { cluster } from '../lib/cluster.js';
 import { conversations } from '../lib/conversations.js';
+import { grounding } from '../lib/grounding.js';
 import { llm } from '../lib/llm.js';
 import { markdown } from '../content/markdown.js';
 import { prompt } from '../lib/prompt.js';
@@ -180,7 +181,7 @@ test('prompt: one entry per rule, the topic rule only in a topic', () => {
   assert.match(prompt.system({ ...base, lang: 'en', wikipedia: 'X' }), /^You are[\s\S]*\nRules:\n- Text inside[\s\S]*<wikipedia>X\n<\/wikipedia>$/);
 });
 
-test('agent: the citation check flags what the model says the cited passages do not support', async () => {
+test('agent: the citation check sends every cited sentence and returns the ones the model rejects', async () => {
   const r = run();
   r.cite({ lang: 'en', page: 'T', section: 'S', text: 'Ada was born in London in 1815.' }, true);
   r.cite({ lang: 'en', page: 'T', section: 'S', text: 'She worked with Babbage on the Analytical Engine.' }, true);
@@ -188,19 +189,47 @@ test('agent: the citation check flags what the model says the cited passages do 
   const real = llm.chatWithFallback;
   llm.chatWithFallback = async ({ messages }) => {
     asked = messages[1].content;
-    return { content: '{"unsupported": [{"statement": 1, "why": "The passage does not say she invented it."}, {"statement": 9, "why": "x"}]}' };
+    return { content: '{"unsupported": [{"statement": 2, "why": "The passage does not say she invented it."}, {"statement": 9, "why": "x"}]}' };
   };
   try {
-    const answer = 'Ada was born in London [1].\n- She invented the Analytical Engine [2].\n- She liked music.';
-    const already = [{ text: 'Ada was born in London [1].', kind: 'missing' }];
-    const flags = await r.verifyCitations(answer, already);
-    assert.ok(!asked.includes('born in London [1]'), 'a sentence the word check flagged is not sent again');
-    assert.ok(asked.includes('1. She invented the Analytical Engine [2].') && !asked.includes('music'), 'only cited sentences, without list markers');
-    assert.deepEqual(flags.map((f) => [f.text, f.kind]), [['She invented the Analytical Engine [2].', 'unverified']]);
-    assert.match(flags[0].why, /invented/);
+    const rejected = await r.verifyCitations('Ada was born in London [1].\n- She invented the Analytical Engine [2].\n- She liked music.');
+    assert.ok(asked.includes('1. Ada was born in London [1].') && asked.includes('2. She invented the Analytical Engine [2].'));
+    assert.ok(!asked.includes('music'), 'sentences without a citation are not sent');
+    assert.deepEqual(rejected.map((x) => x.text), ['She invented the Analytical Engine [2].']);
+    assert.match(rejected[0].why, /invented/);
   } finally {
     llm.chatWithFallback = real;
   }
+});
+
+test('agent: with the citation check on, the model decides for cited sentences, the word check for the rest', async () => {
+  const answer = 'Ada was born in Paris [1]. She once met Charles Dickens.';
+  const make = (verifyCitations) => {
+    const r = run({ settings: { verifyCitations } });
+    r.current = { page: { title: 'T' } };
+    r.trace = { notes: [] };
+    r.checkMs = 0;
+    r.cite({ lang: 'en', page: 'T', section: 'S', text: 'Ada was born in London in 1815.' }, true);
+    return r;
+  };
+  const real = llm.chatWithFallback;
+  llm.chatWithFallback = async () => ({ content: '{"unsupported": []}' }); // the model finds the cited sentence fine
+  try {
+    const off = await make(false).unbacked(answer, []);
+    assert.deepEqual(off.map((x) => x.text).sort(), ['Ada was born in Paris [1].', 'She once met Charles Dickens.'].sort(), 'word check alone: both');
+    const on = await make(true).unbacked(answer, []);
+    assert.deepEqual(on.map((x) => x.text), ['She once met Charles Dickens.'], 'the model clears the cited sentence; the uncited one still fails');
+  } finally {
+    llm.chatWithFallback = real;
+  }
+});
+
+test('grounding: sentences are left out cleanly, empty list items too', () => {
+  const answer = 'Intro sentence [1]. Wrong claim [2].\n\n- Good item [1].\n- Bad item [3].\n- Another good one [2].';
+  assert.equal(
+    grounding.withoutSentences(answer, ['Wrong claim [2].', 'Bad item [3].']),
+    'Intro sentence [1].\n\n- Good item [1].\n- Another good one [2].'
+  );
 });
 
 test('settings: the citation check is off unless turned on', () => {

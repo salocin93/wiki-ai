@@ -10,10 +10,11 @@ import { topics } from '../lib/topics.js';
 (async () => {
   const BASE = location.hostname.endsWith('wikipedia.org') ? 'http://localhost:8765/' : location.origin + '/';
   const settings = { ...appSettings.DEFAULTS, model: 'fake-model' };
+  window.__wikiaiSettings = settings; // e.g. __wikiaiSettings.verifyCitations = true, to try the citation check
 
   // Fake model: searches the article, opens one linked article, then answers citing what it got.
   llm.chat = async ({ messages, tools, onUpdate }) => {
-    // Citation check: a second or so, then calls the first statement unsupported, to show the underline.
+    // Citation check: a second or so, then calls the first statement unsupported (it gets fixed, or left out).
     if (!tools && messages[0].content.startsWith('You check whether Wikipedia passages')) {
       await new Promise((r) => setTimeout(r, 1200));
       return { content: JSON.stringify({ unsupported: [{ statement: 1, why: 'The passage names her but not this detail (scripted test).' }] }), toolCalls: [], model: 'fake-model' };
@@ -73,8 +74,7 @@ import { topics } from '../lib/topics.js';
       id: 'wikiai-harness',
       getURL: (p) => BASE + p,
       sendMessage: async (msg) => {
-        if (msg.type === 'getSettings') return { hasKey: true, recipient: 'the scripted test model', privacyUrl: appSettings.PRIVACY_URL, noticeSeen: !!window.__wikiaiNoticeSeen, verifyCitations: settings.verifyCitations };
-        if (msg.type === 'setVerifyCitations') return { result: (settings.verifyCitations = msg.on) };
+        if (msg.type === 'getSettings') return { hasKey: true, recipient: 'the scripted test model', privacyUrl: appSettings.PRIVACY_URL, noticeSeen: !!window.__wikiaiNoticeSeen };
         if (msg.type === 'privacyNoticeSeen') return { result: (window.__wikiaiNoticeSeen = true) };
         try {
           return { result: await topics.handle(msg) };

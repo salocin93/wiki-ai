@@ -75,7 +75,7 @@
       <label class="switch">
         <input type="checkbox" id="verifyCitations">
         <span class="track" aria-hidden="true"></span>
-        <span><strong>Check citations with the model</strong><span class="hint block">Before an answer is shown, the model reads each cited sentence next to its passages and underlines the ones they don't support. Catches reworded or overstated claims, but adds one request per answer: slower, and uses more of a free quota. Each answer shows how long the check took.</span></span>
+        <span><strong>Check citations with the model</strong><span class="hint block">Before an answer is shown, the model reads each cited sentence next to its passages. Claims they don't back are fixed or left out. More accurate than the built-in word check (it catches reworded or overstated claims, and doesn't trip over a name written differently), but adds a request per answer: slower, and uses more of a free quota. The time it took is in each answer's debug info.</span></span>
       </label>
       <details class="advanced">
         <summary>Advanced</summary>

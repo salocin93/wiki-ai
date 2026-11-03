@@ -18,7 +18,7 @@ Ask questions about the Wikipedia article you're reading and get answers with nu
 **You need an API key.** Wiki AI works with Google's Gemini API (a free key from aistudio.google.com) or any OpenAI-compatible service, including a model you run on your own computer. Your questions, any text you select, earlier questions in the chat and passages from Wikipedia are sent to the service you choose, to write the answer. On Gemini's free tier, Google may use them to improve its products.
 
 What it does:
-• Answers from the article, with a numbered source for each claim; claims it couldn't match to Wikipedia are underlined.
+• Answers from the article, with a numbered source for each claim; claims the cited passages don't back are corrected or left out before you see the answer.
 • Opens linked articles itself when the current one only mentions something briefly.
 • "Ask about this" on selected text, or right-click › Ask Wiki AI.
 • Topic clusters: groups an article's most relevant links into themes so you can ask across many articles at once, and shows them as a map.
