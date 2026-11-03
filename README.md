@@ -99,6 +99,11 @@ This writes `dist/wiki-ai-<version>-store.zip` (manifest at the root, no tester 
 
 ## Testing
 
+**Unit tests and source checks** (no network, no model; also run on every push by GitHub Actions):
+```bash
+npm test
+```
+
 **Agent against the real model, from the terminal:**
 ```bash
 export LLM_API_KEY=…                       # a Gemini key, or your endpoint's key

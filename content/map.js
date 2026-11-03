@@ -145,14 +145,17 @@
 
   // Full-size map over the article area, next to the sidebar. Returns a function that closes it.
   function open(opts) {
-    opts.root.querySelector('.map-overlay')?.remove();
+    // An overlay still open is closed properly, so its Escape handler goes too.
+    const old = opts.root.querySelector('.map-overlay');
+    if (old) old.__close ? old.__close() : old.remove();
     const overlay = document.createElement('div');
     overlay.className = 'map-overlay';
     overlay.style.right = `${opts.rightInset || 0}px`;
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-label', `Map of the topic ${opts.topic.name}`);
     opts.root.appendChild(overlay);
-    return draw(overlay, opts, true);
+    overlay.__close = draw(overlay, opts, true);
+    return overlay.__close;
   }
 
   // Map inside a container (the sidebar's Map tab). Returns a function that removes it.
@@ -162,7 +165,7 @@
   }
 
   // colorOf(page) → class name c0…c5, shared with the sidebar's citation colors.
-  function draw(box, { topic, currentTitle, colorOf, onOpenArticle, onAsk, onExpand }, isOverlay) {
+  function draw(box, { topic, currentTitle, colorOf, onOpenArticle, onAsk, onExpand, onList }, isOverlay) {
     const legend = topic.facets
       .map((f) => {
         const page = topic.pages.find((p) => p.facet === f.name);
@@ -173,13 +176,14 @@
       <div class="map-head">
         <div class="map-title"><strong>${esc(topic.name)}</strong><span class="map-meta"></span><span class="map-hint">${isOverlay ? 'Hover to see connections · click for details · scroll to zoom · drag to move' : 'Click for details · scroll to zoom · drag to move'}</span></div>
         <div class="legend">${legend}</div>
+        ${onList ? '<button class="link map-list" title="The same articles as a list, in the Topic tab">List view</button>' : ''}
         ${
           isOverlay
             ? '<button class="icon map-close" title="Close map (Esc)" aria-label="Close map">×</button>'
             : '<button class="icon map-expand" title="Enlarge map" aria-label="Enlarge map"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>'
         }
       </div>
-      <svg class="map-svg" role="img" aria-label="Graph of the topic's articles"></svg>
+      <svg class="map-svg" role="group" aria-label="Graph of the topic's articles: each article is a button. List view shows them as a list."></svg>
       <div class="map-card" hidden></div>`;
 
     const svg = box.querySelector('svg.map-svg');
@@ -451,6 +455,10 @@
       if (!t) return;
       if (t.matches('.map-close')) close();
       else if (t.matches('.map-expand')) onExpand?.();
+      else if (t.matches('.map-list')) {
+        if (isOverlay) close();
+        onList?.();
+      }
       else if (t.matches('.card-close')) select(null);
       else if (t.matches('.open-article')) onOpenArticle(nodes[selected].id);
       else if (t.matches('.ask-article')) {

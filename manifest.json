@@ -48,6 +48,7 @@
       ],
       "js": [
         "vendor/katex/katex.min.js",
+        "lib/sections.js",
         "content/markdown.js",
         "content/map.js",
         "content/content.js"

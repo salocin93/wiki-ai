@@ -38,7 +38,7 @@
   // ---------- Page reading helpers ----------
 
   const NON_ARTICLE_NS = /^(File|Image|Help|Special|Wikipedia|Template|Category|Portal|Talk|Module|Draft|User|MediaWiki|Book|Media|WP|Template talk|User talk)(:)/i;
-  const BACK_MATTER = /^(see also|references|notes|footnotes|external links|further reading|bibliography|sources|citations|works cited|literature|general references|notes and references|primary sources|secondary sources)\b/i;
+  const isBackMatter = (name) => W.sections.isBackMatter(name); // references, external links, "See also", in many languages
   const SKIP_LINK_AREAS = '.reflist, .references, .mw-references-wrap, sup.reference, cite, .citation, .reference-text, .mw-editsection, .sistersitebox, .shortdescription, .navbar';
 
   const headingText = (h) => (h.querySelector('.mw-headline')?.textContent || h.textContent).replace(/\[edit\]$/, '').trim();
@@ -154,13 +154,13 @@
       const anchor = el.textContent.trim();
       if (anchor && anchor !== target && !entry.anchors.includes(anchor) && entry.anchors.length < 3) entry.anchors.push(anchor);
       let signal = linkSignal(el);
-      if (!signal && /^see also$/i.test(section)) signal = { kind: 'seealso', context: 'Listed under "See also"' };
+      if (!signal && W.sections.isSeeAlso(section)) signal = { kind: 'seealso', context: `Listed under "${section}"` };
       if (signal) {
         entry.signals.add(signal.kind);
         if (signal.box) entry.navboxes.add(signal.box);
       }
       // Only mentions in the article's own text count; navigation boxes and back matter list links wholesale.
-      const inText = !signal && !BACK_MATTER.test(section);
+      const inText = !signal && !isBackMatter(section);
       if (inText || signal?.kind === 'main' || signal?.kind === 'infobox') entry.count++;
       if (inText) {
         if (entry.prose.length < 2) entry.prose.push(contextSentence(el));
@@ -180,10 +180,22 @@
     return state.links;
   }
 
+  // The revision on screen, from the page's inline config (the content script can't reach mw.config).
+  const pageRevid = (() => {
+    for (const el of document.querySelectorAll('script:not([src])')) {
+      const m = el.textContent.match(/"wgRevisionId"\s*:\s*(\d+)/);
+      if (m) return Number(m[1]);
+    }
+    return 0;
+  })();
+  // A source quoted from another revision than the one on screen: its text may have changed since.
+  const otherRevision = (src) => !!(src.revid && pageRevid && src.revid !== pageRevid);
+
   function pageInfo() {
     return {
       lang,
       title,
+      revid: pageRevid,
       url: canonical,
       links: collectLinks(),
       categories: [...document.querySelectorAll('#mw-normal-catlinks li a')].map((a) => a.textContent.trim()),
@@ -301,6 +313,8 @@
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return true;
     }
+    // The passage may have changed since it was quoted; the preview says so instead of guessing a place.
+    if (otherRevision(src)) return false;
     const h = headings().find((x) => headingText(x) === src.section.split(' › ').pop());
     if (h) {
       openCollapsedAncestors(h);
@@ -323,16 +337,40 @@
     return `https://${src.lang}.wikipedia.org/wiki/${encodeURIComponent(src.page.replace(/ /g, '_'))}`;
   }
 
+  // The revision a passage was quoted from, so the link shows the text that was cited.
+  const versionUrl = (src) => (src.revid ? `https://${src.lang}.wikipedia.org/w/index.php?oldid=${src.revid}` : articleUrl(src));
+
+  // A text fragment that finds the passage on the page. Table, infobox and figure passages start with labels
+  // the page doesn't show ("Table: …"), so they're found by a cell, a value or the caption instead; prose by
+  // its first and last words, which survives small edits in between.
+  const fragmentText = (t) => encodeURIComponent(t).replace(/-/g, '%2D');
+  const firstWords = (t, n) => t.replace(/\s+/g, ' ').trim().split(' ').slice(0, n).join(' ');
+  function textFragment(src) {
+    const [head = '', ...rest] = src.text.split('\n').filter((l) => !/^(Columns|File|Categories|Description): /.test(l));
+    let start = '';
+    let end = '';
+    if (head.startsWith('Infobox')) start = firstWords(rest[0]?.split(': ').slice(1).join(': ') || '', 3);
+    else if (head.startsWith('Table')) start = firstWords(rest[0]?.split(' | ').find((c) => c.trim().length >= 3) || '', 4);
+    else if (head.startsWith('Figure')) start = firstWords(head.replace(/^Figure:\s*/, ''), 5);
+    else {
+      const words = src.text.replace(/\$[^$\n]*\$/g, ' ').replace(/\s+/g, ' ').trim().split(' ');
+      [start, end] = words.length > 10 ? [words.slice(0, 4).join(' '), words.slice(-4).join(' ')] : [words.join(' '), ''];
+    }
+    return start ? `#:~:text=${fragmentText(start)}${end ? `,${fragmentText(end)}` : ''}` : '';
+  }
+
   function linkedUrl(src) {
-    const words = src.text.replace(/\s+/g, ' ').split(' ').slice(0, 6).join(' ');
-    return `${articleUrl(src)}#:~:text=${encodeURIComponent(words)}`;
+    return `${versionUrl(src)}${textFragment(src)}`;
   }
 
   // ---------- UI ----------
 
   const host = document.createElement('div');
   host.id = 'wikiai-host';
-  const root = host.attachShadow({ mode: 'open' });
+  // Closed, so the page's own scripts can't read or change the chats. In the extension this variable lives in the
+  // content script's isolated world, out of the page's reach; the test harness reads it to inspect the panel.
+  const root = host.attachShadow({ mode: 'closed' });
+  globalThis.__wikiaiRoot = root;
   root.innerHTML = `
     <link rel="stylesheet" href="${chrome.runtime.getURL('vendor/katex/katex.min.css')}">
     <link rel="stylesheet" href="${chrome.runtime.getURL('content/sidebar.css')}">
@@ -377,12 +415,13 @@
       <section class="view view-chat" role="tabpanel">
       <div class="scope-bar" hidden></div>
       <div class="chat-bar"></div>
-      <div class="messages" role="log" aria-live="polite"></div>
+      <div class="messages" role="region" aria-label="Conversation"></div>
+      <div class="sr-only live" aria-live="polite" aria-atomic="true"></div>
       <div class="preview" hidden></div>
       <form class="composer">
         <div class="quote" hidden></div>
         <div class="row">
-          <textarea rows="1" placeholder="Ask about this article…" aria-label="Your question"></textarea>
+          <textarea rows="1" maxlength="4000" placeholder="Ask about this article…" aria-label="Your question"></textarea>
           <button type="submit" class="send" title="Send" aria-label="Send">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </button>
@@ -483,21 +522,10 @@
   // Hand-off to new tabs: when the panel is open and the reader presses on an article link, note the link
   // briefly; if that article opens in a new tab soon after, the panel opens there too.
   const HANDOFF_MS = 2 * 60 * 1000;
+  // Kept by the service worker: extension storage is closed to content scripts.
   const handoffStore = {
-    async get() {
-      try {
-        if (chrome.storage?.local) return (await chrome.storage.local.get('handoff')).handoff || [];
-        return JSON.parse(localStorage.getItem('wikiai:handoff') || '[]');
-      } catch {
-        return [];
-      }
-    },
-    async set(list) {
-      try {
-        if (chrome.storage?.local) await chrome.storage.local.set({ handoff: list });
-        else localStorage.setItem('wikiai:handoff', JSON.stringify(list));
-      } catch {}
-    },
+    get: () => send({ type: 'handoff:get' }).then((list) => list || [], () => []),
+    set: (list) => send({ type: 'handoff:set', list }).catch(() => {}),
   };
   const pathOf = (url) => {
     try {
@@ -601,7 +629,8 @@
     renderChatBar();
     renderTopic();
   }
-  const wikiUrl = (t) => `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
+  // l: the Wikipedia the article is on; a topic's articles can be in another language than this page.
+  const wikiUrl = (t, l = lang) => `https://${l}.wikipedia.org/wiki/${encodeURIComponent(t.replace(/ /g, '_'))}`;
 
   const truncate = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
   const esc = (v) => W.markdown.esc(String(v ?? ''));
@@ -724,7 +753,7 @@
   function themesSection(t) {
     const pageRow = (p) => `
       <li class="${p.title === title ? 'here' : ''}">
-        <a href="${wikiUrl(p.title)}" title="${esc(p.summary || p.description || '')}">${esc(p.title)}</a>
+        <a href="${wikiUrl(p.title, t.lang)}" title="${esc(p.summary || p.description || '')}">${esc(p.title)}</a>
         ${p.title === title ? '<span class="tag">you are here</span>' : ''}
         ${p.description ? `<span class="desc">${esc(p.description)}</span>` : ''}
         ${p.seed ? '' : `<button class="icon remove-page" data-title="${esc(p.title)}" title="Remove from topic" aria-label="Remove ${esc(p.title)} from topic">×</button>`}
@@ -829,7 +858,11 @@
       topic: t,
       currentTitle: title,
       colorOf: (p) => (p.seed ? 'c0' : `c${(Math.max(0, facets.indexOf(p.facet)) % 7) + 1}`),
-      onOpenArticle: (t2) => (location.href = wikiUrl(t2)),
+      onOpenArticle: (t2) => (location.href = wikiUrl(t2, t.lang)),
+      onList: () => {
+        closeMap?.();
+        setView('topic');
+      },
       onAsk: async (t2) => {
         closeMap?.();
         setView('chat');
@@ -1242,13 +1275,13 @@
     if (isDisambiguation()) {
       return [p.meanings(title), ...linked.slice(0, 2).map((l) => p.whatIs(l.title))];
     }
-    const sections = headings().map(headingText).filter((h) => !BACK_MATTER.test(h));
+    const sections = headings().map(headingText).filter((h) => !isBackMatter(h));
     if (!sections.length) return [p.summaryOf(title), p.readNext];
     const vis = visibleSection().name;
     const top = [...linked].sort((a, b) => b.count - a.count)[0];
     return [
       p.summaryOf(title),
-      vis !== 'Introduction' && !BACK_MATTER.test(vis) ? p.explain(vis) : top ? p.connect(title, top.title) : p.section,
+      vis !== 'Introduction' && !isBackMatter(vis) ? p.explain(vis) : top ? p.connect(title, top.title) : p.section,
       p.readNext,
     ];
   }
@@ -1321,7 +1354,7 @@
         d.scrollHeight - d.scrollTop - d.clientHeight < 8 ? Infinity : d.scrollTop,
       ])
     );
-    messagesEl.innerHTML = noticeCard() + c.messages.map(renderMessage).join('');
+    patchChildren(messagesEl, [noticeCard(), ...c.messages.map(renderMessage)]);
     for (const d of messagesEl.querySelectorAll('.msg[data-i] .reasoning div')) {
       const top = thinking.get(d.closest('.msg').dataset.i);
       if (top !== undefined) d.scrollTop = top === Infinity ? d.scrollHeight : top;
@@ -1329,6 +1362,48 @@
     if (restoreScroll) state.pinQuestion = false;
     messagesEl.scrollTop = restoreScroll ? c.scrollTop ?? messagesEl.scrollHeight : state.pinQuestion ? questionTop() : scrollTop;
   }
+
+  // Replaces only the children whose HTML changed: while an answer streams in, that's the one message being
+  // written, so the rest keep their focus, open details and screen-reader position. Each part is one element.
+  function patchChildren(container, parts) {
+    const focused = focusKey(container);
+    const kids = [...container.children];
+    const tpl = document.createElement('template');
+    parts = parts.filter(Boolean);
+    parts.forEach((html, i) => {
+      if (kids[i]?.__html === html) return;
+      tpl.innerHTML = html;
+      const el = tpl.content.firstElementChild;
+      el.__html = html;
+      if (kids[i]) kids[i].replaceWith(el);
+      else container.appendChild(el);
+    });
+    for (const k of kids.slice(parts.length)) k.remove();
+    if (focused && !container.contains(root.activeElement)) restoreFocus(container, focused);
+  }
+
+  // Enough to find the focused control again after its message was redrawn.
+  function focusKey(container) {
+    const el = root.activeElement;
+    if (!el || !container.contains(el)) return null;
+    return { i: el.closest('.msg')?.dataset.i, cls: el.classList[0], n: el.dataset.n, q: el.dataset.q, tag: el.tagName };
+  }
+  function restoreFocus(container, k) {
+    const scope = k.i != null ? container.querySelector(`.msg[data-i="${k.i}"]`) : container;
+    const match = [...(scope?.querySelectorAll(k.cls ? `.${CSS.escape(k.cls)}` : k.tag) || [])].find(
+      (el) => el.tagName === k.tag && el.dataset.n === k.n && el.dataset.q === k.q
+    );
+    match?.focus({ preventScroll: true });
+  }
+
+  // Screen readers hear status changes and the finished answer here, not every redraw of the conversation.
+  const liveEl = $('.live');
+  function announce(text) {
+    if (!text || liveEl.textContent === text) return;
+    liveEl.textContent = '';
+    setTimeout(() => (liveEl.textContent = text), 50);
+  }
+  const spoken = (md) => W.markdown.plain(md || '').replace(/\s*(?:\[|【)\s*\d+(?:\s*[,;]\s*\d+)*\s*(?:\]|】)/g, '').replace(/[#*$]/g, '').slice(0, 1500);
 
   // A new question goes to the top, and stays there as its answer streams in, so the answer is read from its start.
   function questionTop() {
@@ -1539,10 +1614,12 @@
     switch (msg.type) {
       case 'status':
         m.status = msg.text;
+        announce(msg.text);
         break;
       case 'step':
         m.steps.push(msg.text);
         m.status = msg.text;
+        announce(msg.text);
         break;
       case 'trace':
         traces.set(m, msg.trace);
@@ -1561,11 +1638,13 @@
         if (msg.followups?.length) m.followups = msg.followups;
         m.unsupported = msg.unsupported?.length ? msg.unsupported : undefined;
         if (msg.stopped && !m.content) m.error = 'Stopped.';
+        announce(m.error || `Answer: ${spoken(m.content)}`);
         finish();
         break;
       case 'error':
         m.pending = false;
         m.error = msg.message;
+        announce(msg.message);
         finish();
         break;
     }
@@ -1625,10 +1704,15 @@
         <button class="icon close-preview" aria-label="Close preview">×</button>
       </div>
       ${src.figure?.thumb ? `<img class="preview-img" src="${W.markdown.esc(src.figure.thumb)}" alt="">` : ''}
+      ${isHere(src) && otherRevision(src) ? '<p class="preview-note">Quoted from another version of this article. The passage may have changed since, so it isn\'t highlighted on the page.</p>' : ''}
       <div class="preview-text">${W.markdown.esc(src.text)}</div>
       ${licenseLine(src.page, articleUrl(src))}
       <div class="preview-actions">
-        ${isHere(src) ? '<button class="link show-in-page">Show in article</button>' : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener">Open “${W.markdown.esc(src.page)}” ↗</a>`}
+        ${
+          isHere(src) && !otherRevision(src)
+            ? '<button class="link show-in-page">Show in article</button>'
+            : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener noreferrer">${isHere(src) ? 'Open the version quoted ↗' : `Open “${W.markdown.esc(src.page)}” ↗`}</a>`
+        }
       </div>`;
     previewEl.dataset.n = src.n;
   }
