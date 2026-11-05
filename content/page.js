@@ -64,16 +64,16 @@ export const pageDom = (() => {
     return h ? Number(h.tagName[1]) : 0;
   };
 
-  const isAboveFold = (h) => h.getBoundingClientRect().top < window.innerHeight * 0.35;
+  // The heading of the section the reader is looking at, and those before it, or an empty list in the introduction.
+  function headingsUpToReading() {
+    const all = headings();
+    return all.slice(0, sectionNames.readingIndex(all.map((h) => h.getBoundingClientRect().top), window.innerHeight) + 1);
+  }
 
   // The name of the section the reader is looking at, cheap enough to ask while the page scrolls.
   function visibleSectionName() {
-    let name = 'Introduction';
-    for (const h of headings()) {
-      if (!isAboveFold(h)) break;
-      name = headingText(h);
-    }
-    return name;
+    const h = headingsUpToReading().at(-1);
+    return h ? headingText(h) : 'Introduction';
   }
 
   // The section the reader is looking at, with its text as shown on the page. Wikipedia's plain-text export
@@ -81,8 +81,7 @@ export const pageDom = (() => {
   function visibleSection() {
     let current = null;
     const stack = [];
-    for (const h of headings()) {
-      if (!isAboveFold(h)) break;
+    for (const h of headingsUpToReading()) {
       const level = Number(h.tagName[1]);
       while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
       stack.push({ level, name: headingText(h) });

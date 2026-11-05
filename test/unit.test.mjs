@@ -291,6 +291,15 @@ test('types: priority order, dated items as events, a query that walks up from t
   assert.equal(await articleTypes.articleType('not an id'), 'other', 'no request for a malformed id');
 });
 
+test('sections: the heading the reader is at', () => {
+  const at = (tops) => sectionNames.readingIndex(tops, 768);
+  assert.equal(at([300, 900]), -1, 'still in the introduction');
+  assert.equal(at([-500, 200, 400]), 1, 'the last one in the top third');
+  assert.equal(at([-81, 71, 229, 400]), 1, 'a link to a short section: not the next heading, also in the top third');
+  assert.equal(at([20, 60, 200]), 1, 'a subsection right under its section');
+  assert.equal(at([-229, -71, 150, 400]), 2, 'once the short section has scrolled away');
+});
+
 test('phrases: typed questions only where a section can answer them', async () => {
   const { phraseBook } = await import('../content/phrases.js');
   const q = (code, type, headings) => phraseBook.typedQuestions(code, type, 'X', headings);
