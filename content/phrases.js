@@ -115,6 +115,22 @@ const TYPED = {
       group: [[(t) => `How did “${t}” come about, and what is it known for?`], [(t) => `Who were the most important members of “${t}”?`, 'members'], [(t) => `How did “${t}” change over time?`, 'history']],
       concept: [[(t) => `Explain “${t}” in simple terms`], [(t) => `How does “${t}” work?`, 'mechanism'], [(t) => `Why does “${t}” matter, and where does it play a role?`, 'applications'], [(t) => `How was “${t}” discovered and developed?`, 'history']],
     },
+    facts: {
+      P161: (t, v) => `What role does ${v} play in “${t}”?`,
+      P800: (t, v) => `Why does ${v} matter in the career of ${t}?`,
+      P737: (t, v) => `How did ${v} influence ${t}?`,
+      P179: (t, v) => `How does “${t}” fit into “${v}”?`,
+      P155: (t, v) => `How does “${t}” follow from “${v}”?`,
+      P166: (t, v) => `Why did ${t} receive “${v}”?`,
+      P1411: (t, v) => `Why was ${t} nominated for “${v}”?`,
+      P22: (t, v) => `How did ${v} shape the life of ${t}?`,
+      P25: (t, v) => `How did ${v} shape the life of ${t}?`,
+      P39: (t, v) => `What did ${t} do as ${v}?`,
+      P102: (t, v) => `What was the role of ${t} in “${v}”?`,
+      P54: (t, v) => `What was the role of ${t} in “${v}”?`,
+      P112: (t, v) => `What was the role of ${v} in “${t}”?`,
+      P127: (t, v) => `What was the role of ${v} in “${t}”?`,
+    },
     topic: {
       people: 'How did these people influence each other?',
       family: 'How are the branches of this family related, and who were its key figures?',
@@ -151,6 +167,22 @@ const TYPED = {
       group: [[(t) => `Was ist über Entstehung und Bedeutung von „${t}“ bekannt?`], [(t) => `Wer waren die wichtigsten Mitglieder von „${t}“?`, 'members'], [(t) => `Wie hat sich „${t}“ im Lauf der Zeit verändert?`, 'history']],
       concept: [[(t) => `Erkläre „${t}“ einfach und verständlich`], [(t) => `Wie funktioniert „${t}“?`, 'mechanism'], [(t) => `Wo spielt „${t}“ eine Rolle, und warum ist das wichtig?`, 'applications'], [(t) => `Wie wurde „${t}“ entdeckt und erforscht?`, 'history']],
     },
+    facts: {
+      P161: (t, v) => `Welche Rolle spielt ${v} in „${t}“?`,
+      P800: (t, v) => `Welche Bedeutung hat ${v} für die Karriere von ${t}?`,
+      P737: (t, v) => `Wie hat ${v} ${t} beeinflusst?`,
+      P179: (t, v) => `Wie fügt sich „${t}“ in „${v}“ ein?`,
+      P155: (t, v) => `Wie knüpft „${t}“ an „${v}“ an?`,
+      P166: (t, v) => `Warum erhielt ${t} „${v}“?`,
+      P1411: (t, v) => `Warum wurde ${t} für „${v}“ nominiert?`,
+      P22: (t, v) => `Wie hat ${v} das Leben von ${t} geprägt?`,
+      P25: (t, v) => `Wie hat ${v} das Leben von ${t} geprägt?`,
+      P39: (t, v) => `Was tat ${t} als ${v}?`,
+      P102: (t, v) => `Welche Rolle spielte ${t} bei „${v}“?`,
+      P54: (t, v) => `Welche Rolle spielte ${t} bei „${v}“?`,
+      P112: (t, v) => `Welche Rolle spielte ${v} bei „${t}“?`,
+      P127: (t, v) => `Welche Rolle spielte ${v} bei „${t}“?`,
+    },
     topic: {
       people: 'Wie haben sich diese Personen gegenseitig beeinflusst?',
       family: 'Wie hängen die Linien dieser Familie zusammen, und wer waren ihre wichtigsten Mitglieder?',
@@ -185,6 +217,22 @@ const TYPED = {
       religion: [[(t) => `Que sait-on de l'origine et de la signification de « ${t} » ?`], [(t) => `Quelles sont les croyances et pratiques centrales de « ${t} » ?`, 'beliefs'], [(t) => `Quelles sont les grandes étapes de l'histoire de « ${t} » ?`, 'history']],
       group: [[(t) => `Que sait-on de l'origine et du rôle de « ${t} » ?`], [(t) => `Qui ont été les membres les plus importants de « ${t} » ?`, 'members'], [(t) => `Quelles sont les grandes étapes de l'histoire de « ${t} » ?`, 'history']],
       concept: [[(t) => `Explique « ${t} » simplement`], [(t) => `Comment fonctionne « ${t} » ?`, 'mechanism'], [(t) => `Quel est le rôle de « ${t} », et pourquoi est-ce important ?`, 'applications'], [(t) => `Quelle est l'histoire de la découverte de « ${t} » ?`, 'history']],
+    },
+    facts: {
+      P161: (t, v) => `Quel rôle joue ${v} dans « ${t} » ?`,
+      P800: (t, v) => `Quelle importance a ${v} dans la carrière de ${t} ?`,
+      P737: (t, v) => `Quelle a été l'influence de ${v} sur ${t} ?`,
+      P179: (t, v) => `Quelle place occupe « ${t} » dans « ${v} » ?`,
+      P155: (t, v) => `Comment « ${t} » fait-il suite à « ${v} » ?`,
+      P166: (t, v) => `Qu'est-ce qui a valu à ${t} de recevoir « ${v} » ?`,
+      P1411: (t, v) => `Qu'est-ce qui a valu à ${t} une nomination pour « ${v} » ?`,
+      P22: (t, v) => `Quelle a été l'influence de ${v} sur la vie de ${t} ?`,
+      P25: (t, v) => `Quelle a été l'influence de ${v} sur la vie de ${t} ?`,
+      P39: (t, v) => `Qu'a fait ${t} en tant que ${v} ?`,
+      P102: (t, v) => `Quel a été le rôle de ${t} dans « ${v} » ?`,
+      P54: (t, v) => `Quel a été le rôle de ${t} dans « ${v} » ?`,
+      P112: (t, v) => `Quel a été le rôle de ${v} dans « ${t} » ?`,
+      P127: (t, v) => `Quel a été le rôle de ${v} dans « ${t} » ?`,
     },
     topic: {
       people: 'Comment ces personnes se sont-elles influencées ?',
@@ -221,6 +269,22 @@ const TYPED = {
       group: [[(t) => `¿Qué se sabe del origen y el papel de «${t}»?`], [(t) => `¿Quiénes fueron los miembros más importantes de «${t}»?`, 'members'], [(t) => `¿Cuáles son las grandes etapas de la historia de «${t}»?`, 'history']],
       concept: [[(t) => `Explica «${t}» de forma sencilla`], [(t) => `¿Cómo funciona «${t}»?`, 'mechanism'], [(t) => `¿Qué papel tiene «${t}» y por qué es importante?`, 'applications'], [(t) => `¿Cómo se descubrió y estudió «${t}»?`, 'history']],
     },
+    facts: {
+      P161: (t, v) => `¿Qué papel interpreta ${v} en «${t}»?`,
+      P800: (t, v) => `¿Qué importancia tiene ${v} en la carrera de ${t}?`,
+      P737: (t, v) => `¿Cómo influyó ${v} en ${t}?`,
+      P179: (t, v) => `¿Qué lugar ocupa «${t}» en «${v}»?`,
+      P155: (t, v) => `¿Qué relación tiene «${t}» con su predecesor «${v}»?`,
+      P166: (t, v) => `¿Por qué recibió ${t} «${v}»?`,
+      P1411: (t, v) => `¿Qué le valió a ${t} la nominación a «${v}»?`,
+      P22: (t, v) => `¿Cómo influyó ${v} en la vida de ${t}?`,
+      P25: (t, v) => `¿Cómo influyó ${v} en la vida de ${t}?`,
+      P39: (t, v) => `¿Qué hizo ${t} como ${v}?`,
+      P102: (t, v) => `¿Qué papel tuvo ${t} en «${v}»?`,
+      P54: (t, v) => `¿Qué papel tuvo ${t} en «${v}»?`,
+      P112: (t, v) => `¿Qué papel tuvo ${v} en «${t}»?`,
+      P127: (t, v) => `¿Qué papel tuvo ${v} en «${t}»?`,
+    },
     topic: {
       people: '¿Cómo se influyeron estas personas entre sí?',
       family: '¿Cómo se relacionan las ramas de esta familia y quiénes fueron sus figuras clave?',
@@ -255,6 +319,22 @@ const TYPED = {
       religion: [[(t) => `Che cosa si sa dell'origine e del significato di «${t}»?`], [(t) => `Quali sono le credenze e le pratiche centrali di «${t}»?`, 'beliefs'], [(t) => `Quali sono le tappe principali della storia di «${t}»?`, 'history']],
       group: [[(t) => `Che cosa si sa dell'origine e del ruolo di «${t}»?`], [(t) => `Chi furono i membri più importanti di «${t}»?`, 'members'], [(t) => `Quali sono le tappe principali della storia di «${t}»?`, 'history']],
       concept: [[(t) => `Spiega «${t}» in modo semplice`], [(t) => `Come funziona «${t}»?`, 'mechanism'], [(t) => `Che ruolo ha «${t}» e perché è importante?`, 'applications'], [(t) => `Qual è la storia della scoperta di «${t}»?`, 'history']],
+    },
+    facts: {
+      P161: (t, v) => `Che ruolo interpreta ${v} in «${t}»?`,
+      P800: (t, v) => `Che importanza ha ${v} nella carriera di ${t}?`,
+      P737: (t, v) => `In che modo ${v} ha influenzato ${t}?`,
+      P179: (t, v) => `Che posto occupa «${t}» in «${v}»?`,
+      P155: (t, v) => `Che rapporto c'è tra «${t}» e il precedente «${v}»?`,
+      P166: (t, v) => `Perché ${t} ha ricevuto «${v}»?`,
+      P1411: (t, v) => `Che cosa ha valso a ${t} la candidatura a «${v}»?`,
+      P22: (t, v) => `In che modo ${v} ha segnato la vita di ${t}?`,
+      P25: (t, v) => `In che modo ${v} ha segnato la vita di ${t}?`,
+      P39: (t, v) => `Che cosa ha fatto ${t} come ${v}?`,
+      P102: (t, v) => `Che ruolo ha avuto ${t} in «${v}»?`,
+      P54: (t, v) => `Che ruolo ha avuto ${t} in «${v}»?`,
+      P112: (t, v) => `Che ruolo ha avuto ${v} in «${t}»?`,
+      P127: (t, v) => `Che ruolo ha avuto ${v} in «${t}»?`,
     },
     topic: {
       people: 'Come si sono influenzate a vicenda queste persone?',
@@ -298,15 +378,43 @@ function typedQuestions(code, type, title, headings, max = 2) {
   return picked.map(([q]) => q(title));
 }
 
+// A question built on a fact from Wikidata, about whichever fact the article's text names most, or ''. A fact the
+// text doesn't name is left out: Wikidata can say things an article doesn't, and the answers come from the article.
+// That the text names it doesn't prove the fact, so a question can still be answered with a correction.
+function factQuestion(code, { title, facts, text, links = [] }) {
+  const templates = (TYPED[code] || TYPED.en).facts;
+  const short = (t) => t.replace(/ \([^)]*\)$/, '');
+  const escape = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const known = Object.keys(templates);
+  let best = null;
+  let most = 0;
+  for (const fact of [...facts].sort((a, b) => known.indexOf(a.property) - known.indexOf(b.property))) {
+    if (!templates[fact.property] || fact.title === title) continue;
+    const link = links.find((l) => l.title === fact.title);
+    const names = [...new Set([short(fact.title), ...(link?.anchors || [])])].filter((n) => n.length > 2);
+    if (!names.length) continue;
+    const mentions = text.match(new RegExp(`(?<![\\p{L}\\p{N}])(?:${names.map(escape).join('|')})(?![\\p{L}\\p{N}])`, 'gu'))?.length || 0;
+    if (mentions > most) {
+      most = mentions;
+      best = fact;
+    }
+  }
+  if (!best) return '';
+  // "I, Robot (film)" and "I, Robot" need their brackets to be told apart.
+  const same = short(best.title) === short(title);
+  return templates[best.property](same ? title : short(title), same ? best.title : short(best.title));
+}
+
 // Starter questions for an article, from what the page shows: its name, its sections (without back matter), the
-// section being read if any, its links with how often each is mentioned, and the kind of subject once known.
-// Stubs get fewer; a disambiguation page asks which meaning.
-function starterQuestions(code, { title, type, sections, reading, links, disambiguation }) {
+// section being read if any, its links with how often each is mentioned, the kind of subject once known, and a
+// question built on a fact, which goes second. Stubs get fewer; a disambiguation page asks which meaning.
+function starterQuestions(code, { title, type, sections, reading, links, disambiguation, fact = '' }) {
   const p = PHRASES[code] || PHRASES.en;
   if (disambiguation) return [p.meanings(title), ...links.slice(0, 2).map((l) => p.whatIs(l.title))];
   if (!sections.length) return [p.summaryOf(title), p.readNext];
   const typed = typedQuestions(code, type, title, sections);
-  if (typed.length) return [...typed, reading ? p.explain(reading) : p.summaryOf(title)];
+  if (typed.length) return [typed[0], ...(fact ? [fact] : typed.slice(1)), reading ? p.explain(reading) : p.summaryOf(title)];
+  if (fact) return [p.summaryOf(title), fact, reading ? p.explain(reading) : p.readNext];
   const top = [...links].sort((a, b) => b.count - a.count)[0];
   return [p.summaryOf(title), reading ? p.explain(reading) : top ? p.connect(title, top.title) : p.section, p.readNext];
 }
@@ -330,4 +438,4 @@ function topicQuestions(code, { kind, themes, here }) {
 // The question that fits a topic's kind ('people', 'family', 'events', 'places', 'works', 'ideas'), or ''.
 const topicQuestion = (code, kind) => (TYPED[code] || TYPED.en).topic[kind] || '';
 
-export const phraseBook = { get: (code) => PHRASES[code] || PHRASES.en, typedQuestions, topicQuestion, starterQuestions, topicQuestions, TYPED };
+export const phraseBook = { get: (code) => PHRASES[code] || PHRASES.en, typedQuestions, topicQuestion, factQuestion, starterQuestions, topicQuestions, TYPED };

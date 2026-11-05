@@ -20,7 +20,7 @@ By default this service is **Google's Gemini API** (`generativelanguage.googleap
 
 How that service handles the data is governed by its own terms and privacy policy. For Gemini, see Google's [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms) and the [Google Privacy Policy](https://policies.google.com/privacy). **On Gemini's free tier, Google may use what you send to improve its products, and human reviewers may read it.** Don't ask about anything you want to keep private.
 
-Wiki AI also requests articles, summaries and image details from Wikipedia (`*.wikipedia.org`), the same way your browser does when you read Wikipedia. These requests contain article titles and, sometimes, search words chosen to find related articles. When you open the sidebar on an article, Wiki AI also asks Wikidata (`query.wikidata.org`, also run by the Wikimedia Foundation) what kind of subject the article is about (a person, a place, an event …), to suggest fitting questions. That request contains only the article's Wikidata identifier. None of these requests contain your questions verbatim or your API key. See the [Wikimedia Foundation privacy policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy).
+Wiki AI also requests articles, summaries and image details from Wikipedia (`*.wikipedia.org`), the same way your browser does when you read Wikipedia. These requests contain article titles and, sometimes, search words chosen to find related articles. When you open the sidebar on an article, Wiki AI also asks Wikidata (`query.wikidata.org`, also run by the Wikimedia Foundation) what kind of subject the article is about (a person, a place, an event …) and for facts about that subject, to suggest fitting questions. Those requests contain only the article's Wikidata identifier and, for the facts, its Wikipedia's language. None of these requests contain your questions verbatim or your API key. See the [Wikimedia Foundation privacy policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy).
 
 Wiki AI has no analytics, no tracking and no advertising. It doesn't sell or share data with anyone else.
 
@@ -49,7 +49,7 @@ Data already sent to the AI service is handled under that service's policy; Wiki
 ## Permissions
 
 - **Wikipedia sites:** to show the sidebar on articles and read articles for answers.
-- **query.wikidata.org:** to look up what kind of subject an article is about, for suggested questions.
+- **query.wikidata.org:** to look up what kind of subject an article is about and facts about that subject, for suggested questions.
 - **generativelanguage.googleapis.com:** to reach the default AI service.
 - **Other sites (optional, asked when you test a connection):** only the address of the AI service you enter yourself.
 - **Storage:** to keep your settings, chats and topics.

@@ -12,7 +12,7 @@ import { topicMap } from './map.js';
   // The page itself (identity, sections, links, citations in it) is read by page.js; nothing to do where it
   // found no article.
   if (!pageDom) return;
-  const { article, canonical, lang, title, wikidataId, headings, headingText, sectionOf, visibleSectionName, isBackMatter, collectLinks, pageInfo,
+  const { article, canonical, lang, title, wikidataId, headings, headingText, sectionOf, visibleSectionName, proseText, isBackMatter, collectLinks, pageInfo,
     otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl } = pageDom;
   const PANEL_WIDTH = 420;
 
@@ -36,6 +36,7 @@ import { topicMap } from './map.js';
     historyFilter: '',
     pendingChat: null, // a chat to open once its topic or article has loaded
     pageType: null, // what kind of subject the article is ('person', 'event' …), from Wikidata; null until known
+    pageFacts: [], // facts about its subject, from Wikidata; a question is built on one (phrases.js)
   };
 
   // ---------- UI ----------
@@ -263,6 +264,7 @@ import { topicMap } from './map.js';
       render();
       refreshTopic();
       loadPageType();
+      loadPageFacts();
       if (focus) setTimeout(() => input.focus(), 0);
     }
   }
@@ -896,6 +898,32 @@ import { topicMap } from './map.js';
     );
   }
 
+  // Facts about its subject, for a question that names them. Wikidata can take many seconds to answer these, or give
+  // up: the questions then stay as they are until the panel opens again.
+  let pageFactsAsked = false;
+  function loadPageFacts() {
+    if (pageFactsAsked || !wikidataId || isDisambiguation()) return;
+    pageFactsAsked = true;
+    send({ type: 'article:facts', qid: wikidataId, lang }).then(
+      (facts) => {
+        state.pageFacts = facts || [];
+        if (state.pageFacts.length && !conv()?.messages.length) render();
+      },
+      () => (pageFactsAsked = false)
+    );
+  }
+
+  // The question built on a fact, worked out once per language: it reads the article's whole text.
+  const factQuestions = new Map();
+  function factSuggestion() {
+    if (!state.pageFacts.length) return '';
+    const code = phraseCode();
+    if (!factQuestions.has(code)) {
+      factQuestions.set(code, phraseBook.factQuestion(code, { title, facts: state.pageFacts, text: proseText(), links: collectLinks() }));
+    }
+    return factQuestions.get(code);
+  }
+
   async function loadLanguage() {
     try {
       const s = await chrome.runtime.sendMessage({ type: 'getSettings' });
@@ -922,6 +950,7 @@ import { topicMap } from './map.js';
       reading: suggestedFor !== 'Introduction' && !isBackMatter(suggestedFor) ? suggestedFor : '',
       links: collectLinks().filter((l) => l.count > 0),
       disambiguation: isDisambiguation(),
+      fact: factSuggestion(),
     });
   }
 

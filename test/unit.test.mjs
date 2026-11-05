@@ -335,6 +335,74 @@ test('llm: a JSON reply cut off goes to the fallback model, other replies are ke
   }
 });
 
+test('phrases: a question built on the fact the article names most', async () => {
+  const { phraseBook } = await import('../content/phrases.js');
+  const { articleTypes } = await import('../lib/types.js');
+  for (const [code, book] of Object.entries(phraseBook.TYPED)) {
+    assert.deepEqual(Object.keys(book.facts), articleTypes.FACT_PROPERTIES, `${code} has a question for each fact`);
+  }
+  const q = (facts, text, o = {}) => phraseBook.factQuestion('en', { title: 'Ada Lovelace', facts, text, ...o });
+  const fact = (property, title) => ({ property, title });
+  assert.equal(q([], 'Text'), '');
+  assert.equal(q([fact('P108', 'University of Cambridge')], 'University of Cambridge'), '', 'no question for this kind of fact');
+  assert.equal(q([fact('P737', 'University of Cambridge')], 'Nothing about it.'), '', 'a fact the text does not name');
+  assert.equal(q([fact('P737', 'Charles Babbage')], 'She met Charles Babbage.'), 'How did Charles Babbage influence Ada Lovelace?');
+  assert.equal(q([fact('P737', 'Babbage')], 'Babbages and more'), '', 'whole names only');
+  assert.equal(q([fact('P22', 'Lord Byron'), fact('P737', 'Charles Babbage')], 'Charles Babbage. Lord Byron. Lord Byron.'), 'How did Lord Byron shape the life of Ada Lovelace?');
+  assert.equal(q([fact('P22', 'Lord Byron'), fact('P737', 'Charles Babbage')], 'Lord Byron. Charles Babbage.'), 'How did Charles Babbage influence Ada Lovelace?', 'a tie goes to the better question');
+  assert.equal(q([fact('P737', 'Mercury (planet)')], 'Near Mercury.'), 'How did Mercury influence Ada Lovelace?', 'brackets left out');
+  assert.equal(q([fact('P737', 'George Byron')], 'Her father, Lord Byron.', { links: [{ title: 'George Byron', anchors: ['Lord Byron'] }] }), 'How did George Byron influence Ada Lovelace?', 'the name the article links it by');
+  assert.equal(
+    phraseBook.factQuestion('en', { title: 'I, Robot (film)', facts: [fact('P179', 'I, Robot')], text: 'I, Robot' }),
+    'How does “I, Robot (film)” fit into “I, Robot”?',
+    'titles that differ only by their brackets keep them'
+  );
+  assert.equal(q([fact('P737', 'Ada Lovelace')], 'Ada Lovelace'), '', 'not about itself');
+  assert.match(phraseBook.factQuestion('de', { title: 'X', facts: [fact('P161', 'Yvonne')], text: 'Yvonne' }), /^Welche Rolle spielt Yvonne in „X“/);
+  assert.equal(phraseBook.factQuestion('en', { title: 'Skydance', facts: [fact('P112', 'David Ellison')], text: 'David Ellison' }), 'What was the role of David Ellison in “Skydance”?', 'worded so it does not assume a founding');
+
+  const starter = (o) => phraseBook.starterQuestions('en', { title: 'X', sections: ['Legacy'], reading: '', links: [], disambiguation: false, fact: 'A fact question?', ...o });
+  assert.deepEqual(starter({ type: 'person' }), ['What is X best known for?', 'A fact question?', 'Summarize “X” in a few bullet points'], 'second, in place of the second typed question');
+  assert.deepEqual(starter({ type: 'other', reading: 'Life' }), ['Summarize “X” in a few bullet points', 'A fact question?', 'Explain the section “Life”']);
+  assert.deepEqual(starter({ type: 'other' }), ['Summarize “X” in a few bullet points', 'A fact question?', 'Which linked articles should I read next, and why?']);
+  assert.deepEqual(starter({ type: 'person', fact: '' }), ['What is X best known for?', 'What is the legacy of X?', 'Summarize “X” in a few bullet points'], 'nothing changes without one');
+  assert.equal(starter({ sections: [] }).includes('A fact question?'), false, 'stubs stay as they are');
+  assert.equal(starter({ disambiguation: true }).includes('A fact question?'), false);
+});
+
+test('types: facts ask for this Wikipedia\'s titles, and take no bad input', async () => {
+  const { articleTypes } = await import('../lib/types.js');
+  const q = articleTypes.factsSparql('Q7259', 'de');
+  assert.ok(q.includes('wd:Q7259 ?claim') && q.includes('<https://de.wikipedia.org/>') && q.includes('wdt:P161') && q.includes('DeprecatedRank'));
+  assert.deepEqual(await articleTypes.articleFacts('not an id', 'en'), [], 'no request for a malformed id');
+  assert.deepEqual(await articleTypes.articleFacts('Q1', 'en.evil/'), [], 'no request for a malformed language');
+});
+
+test('cluster: a link is strong when the article names the other one in its introduction', () => {
+  const intros = new Map([
+    ['A', 'A led to the july crisis (1914) and to Mercury.'],
+    ['B', 'B is about Lifestyles.'],
+  ]);
+  const edges = [['A', 'July Crisis'], ['A', 'Mercury (planet)'], ['A', 'B'], ['B', 'Lifestyle'], ['C', 'A']];
+  assert.deepEqual(cluster.markStrongLinks(edges, intros), [
+    ['A', 'July Crisis', 1],
+    ['A', 'Mercury (planet)', 1],
+    ['A', 'B'],
+    ['B', 'Lifestyle'],
+    ['C', 'A'],
+  ]);
+});
+
+test('agent: the links with something to say survive the cut in a topic article\'s list', () => {
+  const r = run();
+  const weak = Array.from({ length: 20 }, (_, i) => ['A', `W${i}`]);
+  r.topic = { pages: [{ title: 'A' }], edges: [...weak, ['A', 'Strong', 1]] };
+  r.corpus = { byPage: new Map() };
+  const list = r.connections('A');
+  assert.ok(list.split('\n')[1].includes('A → Strong'), list);
+  assert.equal(list.split('\n').length, 15, 'the list stays at 14 links');
+});
+
 test('sections: the heading the reader is at', () => {
   const at = (tops) => sectionNames.readingIndex(tops, 768);
   assert.equal(at([300, 900]), -1, 'still in the introduction');
