@@ -9,6 +9,7 @@ import { cluster } from '../lib/cluster.js';
 import { conversations } from '../lib/conversations.js';
 import { grounding } from '../lib/grounding.js';
 import { llm } from '../lib/llm.js';
+import { answerLinks } from '../content/answerlinks.js';
 import { markdown } from '../content/markdown.js';
 import { prompt } from '../lib/prompt.js';
 import { sectionNames } from '../lib/sections.js';
@@ -440,6 +441,51 @@ test('agent: a rewrite that comes back empty or cut off keeps the draft, without
     llm.chat = realChat;
     wiki.getIndexedPage = realPage;
   }
+});
+
+test('answer links: the first mention of an article, where it is safe', () => {
+  const titles = (text, list, self = 'World War I') => answerLinks.find(text, list.map((title) => ({ title, lang: 'en' })), self).map((x) => x.title);
+  assert.deepEqual(titles('The Treaty of Versailles came later. The Treaty of Versailles was signed.', ['Treaty of Versailles']), ['Treaty of Versailles'], 'once per answer');
+  assert.deepEqual(answerLinks.spans('The Treaty of Versailles', [{ title: 'Treaty of Versailles', lang: 'en' }])[0].start, 4);
+  assert.deepEqual(titles('Under the Treaty of Versailles.', ['Treaty of Versailles (1871)', 'Treaty of Versailles']), ['Treaty of Versailles'], 'the exact title wins');
+  assert.deepEqual(titles('Near Treaty of Paris.', ['Treaty of Paris (1763)', 'Treaty of Paris (1898)']), [], 'an ambiguous short name links nowhere');
+  assert.deepEqual(titles('It orbits close to Mercury today.', ['Mercury (planet)']), ['Mercury (planet)']);
+  assert.deepEqual(titles('Article 231 of the Treaty of Versailles.', ['Article 231 of the Treaty of Versailles', 'Treaty of Versailles']), ['Article 231 of the Treaty of Versailles'], 'the longer name');
+  assert.deepEqual(titles('In World War I and World War.', ['World War']), ['World War'], 'not inside the article itself');
+  assert.deepEqual(titles('In World War I.', ['World War I', 'World War']), [], 'never the article itself');
+  assert.deepEqual(titles('They used trench warfare.', ['Trench warfare']), ['Trench warfare'], 'a title of several words, in lower case');
+  assert.deepEqual(titles('It lasted a time.', ['Time']), [], 'a single word needs its capital');
+  assert.deepEqual(titles('Church services ended. Time passed.', ['Church', 'Time']), [], 'a single word opening a sentence');
+  assert.deepEqual(titles('He is Zohran Kwame Mamdani.', ['Kwame']), [], 'a single word inside a longer name');
+  assert.deepEqual(titles("He wrote the column Kwame's Kolumnalu and more.", ['Kwame']), [], 'or a possessive inside a name');
+  assert.deepEqual(titles('It was the Church of England then.', ['Church']), [], 'or a name with "of"');
+  assert.deepEqual(titles('It then praised Bolsonaro again.', ['Bolsonaro'], 'Jair Bolsonaro'), [], "a word of the article's own title");
+  assert.deepEqual(titles('It went to Germany after.', ['Germany']), ['Germany']);
+  assert.deepEqual(titles('### Treaty of Paris\nNothing.', ['Treaty of Paris']), [], 'not in headings');
+  assert.deepEqual(titles('See `Treaty of Paris` here.', ['Treaty of Paris']), [], 'not in code');
+  assert.deepEqual(titles('Treaties of Parisian note.', ['Treaty of Paris']), [], 'whole words');
+  const many = Array.from({ length: 12 }, (_, i) => `Treaty Number${i}`);
+  assert.equal(titles(many.join(', '), many).length, answerLinks.MAX_LINKS);
+});
+
+test('markdown: article links go where they should, and only those given', () => {
+  const links = { items: [{ title: 'Treaty of Brest-Litovsk', lang: 'en' }], self: 'World War I' };
+  const html = markdown.render('**Terms:** The Treaty of Brest-Litovsk [1]. The Treaty of Brest-Litovsk again.', () => true, null, [], links);
+  assert.equal(html.match(/<a /g).length, 1);
+  assert.ok(html.includes('<a class="answer-link" href="https://en.wikipedia.org/wiki/Treaty_of_Brest-Litovsk" target="_blank" rel="noopener noreferrer" title="Open “Treaty of Brest-Litovsk”">Treaty of Brest-Litovsk</a>'), html);
+  assert.ok(html.includes('class="cite'), 'citations still work');
+  assert.ok(!markdown.render('Treaty of Paris [link](https://evil.example).').includes('<a '), 'model text makes no links');
+  const odd = markdown.render('See "Tom & Jerry" now.', () => true, null, [], { items: [{ title: 'Tom & Jerry', lang: 'en' }], self: '' });
+  assert.ok(odd.includes('wiki/Tom_%26_Jerry') && odd.includes('Tom &amp; Jerry</a>'), odd);
+  assert.ok(!markdown.render('Treaty of Paris.', () => true, null, [], { items: [{ title: 'Treaty of Paris', lang: 'evil.example/x' }], self: '' }).includes('<a '), 'a bad language makes no link');
+  assert.ok(!markdown.render('Use \uE0200\uE021 here.', () => true, null, [], null).includes('<a '), "the renderer's markers can't come from the model");
+});
+
+test('agent: tracks the articles shown to the model', () => {
+  const r = run();
+  r.current = { page: { title: 'T' } };
+  r.format([{ lang: 'en', page: 'Other', section: 'S', text: 'Text.' }], 1000);
+  assert.deepEqual([...r.read], [['Other', 'en']]);
 });
 
 test('sections: the heading the reader is at', () => {

@@ -94,6 +94,11 @@ header {
 .answer ul, .answer ol { margin: 0 0 10px; padding-left: 20px; }
 .answer li { margin-bottom: 4px; }
 .answer h4 { margin: 12px 0 6px; font-size: 14px; }
+.answer-link { color: var(--accent); text-decoration: none; }
+.answer-link:hover { text-decoration: underline; }
+.also-read { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.also-read a { color: var(--accent); text-decoration: none; }
+.also-read a:hover { text-decoration: underline; }
 .answer code { background: var(--bg-soft); padding: 1px 4px; border-radius: 4px; font-size: 12.5px; }
 .answer .unsupported { text-decoration: underline dotted var(--danger); text-decoration-thickness: 1.5px; text-underline-offset: 3px; cursor: help; }
 .answer .unsupported.uncited { text-decoration-color: var(--muted); text-decoration-thickness: 1px; }
