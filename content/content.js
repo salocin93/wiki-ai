@@ -1,4 +1,6 @@
 // Sidebar UI on Wikipedia articles: chat, clickable citations, "ask about this" on selected text.
+import { answerLinks } from './answerlinks.js';
+import { linkRank } from '../lib/links.js';
 import { markdown } from './markdown.js';
 import { pageDom } from './page.js';
 import { phraseBook } from './phrases.js';
@@ -1177,7 +1179,7 @@ import { topicMap } from './map.js';
     const cited = m.pending ? [] : textUtil.citedNumbers(m.content || '').filter(known);
     const labelOf = new Map(cited.map((n, k) => [n, k + 1]));
     const attrs = (n) => ({ ...citeAttrs(n), label: labelOf.get(n) });
-    const body = m.content ? `<div class="answer">${markdown.render(m.content, known, attrs)}</div>` : '';
+    const body = m.content ? `<div class="answer">${markdown.render(m.content, known, attrs, [], m.pending ? null : m.links)}</div>` : '';
     const grounding = m.pending ? '' : omittedNote(m);
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${textUtil.esc(m.status || 'Thinking')}${m.words ? ` <span class="words">· ${m.words} words</span>` : ''}</div>` : '';
     const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
@@ -1185,6 +1187,11 @@ import { topicMap } from './map.js';
       ? `<div class="error">${textUtil.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}${m.model ? '' : debug}</div>`
       : '';
     const sources = cited.length ? renderSourceGroups(cited, labelOf) : '';
+    const alsoRead = !m.pending && m.alsoRead?.length
+      ? `<p class="also-read">Also read: ${m.alsoRead
+          .map((r) => `<a href="${textUtil.esc(textUtil.articleUrl(r.lang, r.page))}" target="_blank" rel="noopener noreferrer" title="Open “${textUtil.esc(r.page)}”">${textUtil.esc(r.page)} ↗</a>`)
+          .join(', ')}</p>`
+      : '';
     const figures = cited.length ? renderFigures(cited, labelOf) : '';
     const meta = m.model && !m.pending ? `<div class="meta">${textUtil.esc(m.model)}${debug}</div>` : '';
     const askedHere = new Set(conv().messages.filter((x) => x.role === 'user').map((x) => normQ(x.content)));
@@ -1198,7 +1205,7 @@ import { topicMap } from './map.js';
           )
           .join('')}</div>`
       : '';
-    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${figures}${grounding}${status}${error}${sources}${meta}${followups}</div>`;
+    return `<div class="msg assistant" data-i="${i}">${steps}${reasoning}${body}${figures}${grounding}${status}${error}${sources}${alsoRead}${meta}${followups}</div>`;
   }
 
   // Images the answer cites, with their caption and credit (Commons licences ask for the author and licence).
@@ -1278,8 +1285,26 @@ import { topicMap } from './map.js';
     return port;
   }
 
+  const MAX_ALSO_READ = 5;
+
   // What happened while answering, per answer, for "Copy debug info". Kept in memory only, never saved.
   const traces = new WeakMap();
+
+  // Saved with the answer, as the chat may be reopened from another page. Links come from the articles this page links
+  // to (without dates, lists and reference plumbing), those read during the chat, and the topic's.
+  function addArticleLinks(c, m, read) {
+    const links = collectLinks();
+    const sizes = linkRank.boxSizes(links);
+    const candidates = [
+      ...links.filter((l) => linkRank.importance(l, title, null, sizes) > -2).map((l) => ({ title: l.title, lang })),
+      ...c.sources.map((s) => ({ title: s.page, lang: s.lang })),
+      ...(topicHere()?.pages || []).map((p) => ({ title: p.title, lang: topicHere().lang })),
+    ];
+    m.links = { items: answerLinks.find(m.content, candidates, title), self: title };
+    // Articles the model read for this answer but didn't cite: the source list below wouldn't show them.
+    const cited = new Set(textUtil.citedNumbers(m.content).map((n) => c.sources[n - 1]?.page));
+    m.alsoRead = read.filter((r) => r.page !== title && !cited.has(r.page)).slice(0, MAX_ALSO_READ);
+  }
 
   function onAgentMessage(msg) {
     if (msg.type === 'topicProgress' || msg.type === 'topicBuilt' || msg.type === 'topicError') {
@@ -1342,6 +1367,7 @@ import { topicMap } from './map.js';
         if (msg.model) m.model = msg.model;
         if (msg.followups?.length) m.followups = msg.followups;
         m.omitted = msg.omitted?.length ? msg.omitted : undefined;
+        if (msg.answer) addArticleLinks(c, m, msg.read || []);
         if (msg.stopped && !m.content) m.error = 'Stopped.';
         announce(m.error || `Answer: ${spoken(m.content)}`);
         finish();

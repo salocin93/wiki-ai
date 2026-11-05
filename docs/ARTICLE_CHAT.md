@@ -159,7 +159,7 @@ The question named no other article, so this added no calls.
 | `model` | `gemini-3.1-flash-lite` | Settings: model |
 | `stream` | `true` | Fixed |
 | `temperature` | `0.1` | Fixed |
-| `max_tokens` | `1200` | Settings › Answer length, default 1,200. Gemma gets at least 4,000 |
+| `max_tokens` | `1200` in this log | Settings › Answer length, default 1,200. Gemini and Gemma now get at least 4,000 |
 | `reasoning_effort` | `low` | Fast answers on, Gemini 3 models. Other providers get a different setting, and Gemma gets none |
 | `tool_choice` | `auto` | Fixed |
 | `tools` | 6 tools | See [the tools](#the-tools) |
@@ -168,7 +168,7 @@ The question named no other article, so this added no calls.
 
 **Result in this log:** it took 2.44s, finished normally (`finish: stop`) and wrote 2,634 characters. No tools were used.
 
-**Failures:** on a 503 or 429, or if the stream is cut off before the server says it has finished, it switches to the fallback model for the rest of the answer. Without a fallback, a 503 or 429 waits and retries as the build does, and a cut-off reply is kept without any half-written citation.
+**Failures:** on a 503, 429 or 404, or if the stream is cut off before the server says it has finished, it switches to the fallback model for the rest of the answer. Without a fallback, a 503 or 429 waits and retries as the build does, and a cut-off reply is kept without any half-written citation.
 
 ### 9. Run any tools the model asks for (not used here)
 
@@ -196,13 +196,18 @@ Before you see anything, `grounding.check` compares the answer's details, such a
 | Reply is only reasoning | Asks once more, directly, with thinking low or off and double the tokens | 1 |
 | Reply says "the article doesn't say" without opening another one | Asks once to open the relevant article | 1 |
 | Check citations with the model is on (off by default) | A second model call reads each cited sentence next to its passage | 1 per check |
-| Fewer than 2 usable follow-up questions | Asks for follow-ups separately, with a 250-token limit | 1 |
+| Fewer than 2 usable follow-up questions | Asks for follow-ups separately, with a 1,500-token limit | 1 |
 
 None of these happened here. While the answer is being written you only see its word count, because it isn't shown until it passes.
 
 ### 11. Show the answer (no network)
 
 The `<followups>` block is removed from the answer and shown as buttons, minus questions already asked or already answered. The chat is saved in `chrome.storage.local`, including the numbered sources.
+
+Two things help you open the articles themselves, with no requests or model calls:
+
+- **In-text links:** `answerLinks.find` links the first mention of an article, up to 8 per answer, by matching titles in the finished answer. Candidates are the articles the page links to (without dates, lists and reference plumbing), those read during the chat, and the topic's. Single words only link mid-sentence and away from other capitalised words. Headings, code and citations are skipped. The links are saved with the answer, and old answers have none.
+- **Also read:** up to 5 articles the model was shown passages from for this answer, but didn't cite.
 
 This answer cited passages 1, 4, 6, 13, 14 and 15.
 
@@ -700,4 +705,4 @@ The full World War I request and reply are in `test/fixtures/ww1-article-request
 
 - **The type never reaches the model:** it only chooses "Try asking" questions.
 - **The biggest download serves tables and images:** #3 is about 889,000 characters. It only happens once per article in 24 hours.
-- **The answer limit includes thinking:** Gemini counts thinking towards `max_tokens`, as the topic build's failures showed. This 1,200 limit was enough here, and an answer that runs out shows as `finish: 'length'` in the service worker's console. Unlike a topic plan, it isn't sent to the fallback model.
+- **The answer limit includes thinking:** Gemini counts thinking towards `max_tokens`, as the topic build's failures showed. The 1,200 limit was enough here, but it could cut answers short, so Gemini now gets at least 4,000. An answer that still runs out shows as `finish: 'length'` in the service worker's console. Unlike a topic plan, it isn't sent to the fallback model.

@@ -153,7 +153,7 @@ for (const id of ['model', 'fallbackModel']) {
 // Gemini's line-up changes; if a chosen model is gone, pick the best available one.
 function pickGemini(current, avoid) {
   if (models.includes(current) && current !== avoid) return current;
-  const prefer = [/^gemini-3\.5-flash-lite$/, /^gemini-3\.\d+-flash-lite$/, /^gemini-\d.*flash-lite$/, /^gemma-4.*-it$/, /flash$/];
+  const prefer = [/^gemini-3\.1-flash-lite$/, /^gemini-3\.\d+-flash-lite$/, /^gemini-\d.*flash-lite$/, /^gemma-4.*-it$/, /flash$/];
   return prefer.flatMap((re) => models.filter((m) => re.test(m) && m !== avoid))[0] || current;
 }
 

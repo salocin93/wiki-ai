@@ -42,6 +42,8 @@ interface Message {
   content: string;
   steps?: string[];
   followups?: string[];
+  links?: { items: { title: string; lang: string }[]; self: string }; // articles to link to at their first mention
+  alsoRead?: { page: string; lang: string }[]; // articles read for this answer but not cited
   unsupported?: { text: string; note: string; kind: 'missing' | 'miscited' | 'uncited' }[];
   model?: string;
   error?: string;

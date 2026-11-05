@@ -1,11 +1,14 @@
 // Minimal, escape-first Markdown renderer for model answers. Turns [3] into citation buttons.
+import { answerLinks } from './answerlinks.js';
 import { textUtil } from '../lib/text.js';
 
 const { esc } = textUtil;
 const CITE_SPACED = new RegExp(`(\\s*)${textUtil.CITE.source}`, 'gi');
 
-// flags: {notes, kinds} of the sentences render() marked as not matched to the sources.
-function inline(text, known, attrs, flags) {
+const OPEN_LINK = /\uE020(\d+)\uE021/g;
+
+// flags: {notes, kinds} of the sentences render() marked as not matched to the sources. links: articles to link to.
+function inline(text, known, attrs, flags, links) {
   let s = esc(text);
   s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -22,9 +25,16 @@ function inline(text, known, attrs, flags) {
       })
       .join('');
   });
+  s = s
+    .replace(OPEN_LINK, (_, k) => {
+      const { lang, title } = links[k];
+      return `<a class="answer-link" href="${esc(textUtil.articleUrl(lang, title))}" target="_blank" rel="noopener noreferrer" title="Open “${esc(title)}”">`;
+    })
+    .replace(/\uE022/g, '</a>');
   return s.replace(/(\d+)/g, (_, i) => `<span class="unsupported${flags.kinds[i] === 'uncited' ? ' uncited' : ''}" title="${esc(flags.notes[i] || '')}">`).replace(//g, '</span>');
 }
 
+const VALID_LANG = /^[a-z][a-z0-9-]{0,20}$/;
 const withoutMarkers = (t) => t.replace(/[\uE000-\uF8FF]/g, '');
 
 // Formulas: $$…$$ and \[…\] on their own, $…$ and \(…\) inline. An inline $ pair needs no space just inside
@@ -50,7 +60,8 @@ function takeMath(src) {
 
 // attrs(n) may return {title, className, label} for citation n; label is the number shown (default n).
 // flagged: [{text, note, kind}], sentences to underline as not matched to the sources ('uncited': no source given).
-function render(src, known = () => true, attrs, flagged = []) {
+// links: {items: [{title, lang}], self}, articles to link to at their first mention, and the article being read.
+function render(src, known = () => true, attrs, flagged = [], links = null) {
   const flags = { notes: flagged.map((f) => f.note), kinds: flagged.map((f) => f.kind) };
   // Private-use characters are this renderer's own markers; any in the model's text would be taken for them.
   src = withoutMarkers(src);
@@ -61,15 +72,20 @@ function render(src, known = () => true, attrs, flagged = []) {
   const math = globalThis.katex ? takeMath(src) : null;
   if (math) src = math.text;
   else if (markdown.onMath && src.search(MATH) >= 0) markdown.onMath(); // KaTeX loads on first use; formulas show as text until then
+  const found = links?.items?.length ? answerLinks.spans(src, links.items.filter((l) => VALID_LANG.test(l.lang || '')), links.self) : [];
+  for (let k = found.length - 1; k >= 0; k--) {
+    const { start, end } = found[k];
+    src = `${src.slice(0, start)}\uE020${k}\uE021${src.slice(start, end)}\uE022${src.slice(end)}`;
+  }
   const out = [];
   let list = null;
   let para = [];
   const flushPara = () => {
-    if (para.length) out.push(`<p>${para.map((l) => inline(l, known, attrs, flags)).join('<br>')}</p>`);
+    if (para.length) out.push(`<p>${para.map((l) => inline(l, known, attrs, flags, found)).join('<br>')}</p>`);
     para = [];
   };
   const flushList = () => {
-    if (list) out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i, known, attrs, flags)}</li>`).join('')}</${list.tag}>`);
+    if (list) out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i, known, attrs, flags, found)}</li>`).join('')}</${list.tag}>`);
     list = null;
   };
   for (const line of src.split('\n')) {
@@ -79,7 +95,7 @@ function render(src, known = () => true, attrs, flagged = []) {
     if (heading) {
       flushPara();
       flushList();
-      out.push(`<h4>${inline(heading[1], known, attrs, flags)}</h4>`);
+      out.push(`<h4>${inline(heading[1], known, attrs, flags, found)}</h4>`);
     } else if (bullet || numbered) {
       flushPara();
       const tag = bullet ? 'ul' : 'ol';

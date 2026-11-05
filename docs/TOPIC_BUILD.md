@@ -103,7 +103,7 @@ The full prompt is [below](#the-prompt). If the prompt is over the budget, the u
 | `model` | `gemini-3.1-flash-lite` | Settings: model |
 | `stream` | `true` | Fixed |
 | `temperature` | `0.1` | Fixed |
-| `max_tokens` | `4000` | Fixed: 4,000 on the Gemini API, 1,500 elsewhere |
+| `max_tokens` | `4000` in this log | Fixed: now 6,000 on the Gemini API, 1,500 elsewhere |
 | `reasoning_effort` | `low` | Fast answers on, Gemini 3 models. Other providers get a different setting, and Gemma gets none |
 | `response_format` | `{type: 'json_object'}` | Fixed. If a server rejects it, the request is sent again without it |
 
@@ -111,7 +111,7 @@ The full prompt is [below](#the-prompt). If the prompt is over the budget, the u
 
 | Situation | What happens |
 |---|---|
-| Main model returns 503 or 429 | Switches to the fallback model at once, if one is set |
+| Main model returns 503, 429 or 404 | Switches to the fallback model at once, if one is set |
 | 503 or 429 with no model left to try | Waits as long as the server asks, or 10, 30, then 60 seconds. A used-up daily quota stops immediately |
 | Reply cut off or hits the token limit | Treated as a 503, so it goes to the fallback model. The build fails if there's no fallback or it's cut off too |
 | Reply is complete but isn't valid JSON | Asks once more: "That was not valid JSON. Reply again with only the JSON object." |
