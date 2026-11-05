@@ -48,6 +48,8 @@ lib/tables.js           tables, infoboxes and images from the article HTML as te
 lib/sections.js         names of reference and "See also" sections in many languages
 lib/types.js            what kind of subject an article is (person, place, event …) and facts about it, from Wikidata
 lib/bm25.js             keyword search over chunks and over links (no embedding model needed)
+lib/embeddings.js       optional semantic search: passage embeddings (Gemini or a local model) fused with BM25;
+                        see docs/SEMANTIC_SEARCH.md
 lib/links.js            how central each linked article is (navigation boxes, infobox, introduction …)
 lib/agent.js            tool-calling loop, prompt budget, numbered sources
 lib/prompt.js           the agent's system prompt, one entry per rule

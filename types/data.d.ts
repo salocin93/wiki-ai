@@ -99,6 +99,13 @@ interface Settings {
   maxSteps: number;
   disableThinking: boolean;
   verifyCitations: boolean;
+  semanticSearch: boolean;
+  embedBaseUrl: string;
+  embedModel: string;
+  embedApiKey: string;
+  embedDocPrefix: string;
+  embedQueryPrefix: string;
+  embedMinScore: number;
   answerLanguage: string;
   answerLanguageChosen: boolean;
 }

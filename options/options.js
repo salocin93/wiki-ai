@@ -1,5 +1,6 @@
 // The settings page: model provider, key, answer options and stored data.
 import { appSettings } from '../lib/settings.js';
+import { embeddings } from '../lib/embeddings.js';
 import { llm } from '../lib/llm.js';
 import { textUtil } from '../lib/text.js';
 
@@ -16,6 +17,7 @@ const HELP = {
   custom: 'Any endpoint that speaks the OpenAI chat completions API with streaming and tool calling. Enter its address under Advanced connection, then click Test connection: the browser asks once to let Wiki AI reach it.',
 };
 const NUMBER_FIELDS = ['maxSteps', 'maxAnswerTokens', 'contextTokens'];
+const EMBED_FIELDS = ['embedBaseUrl', 'embedModel', 'embedApiKey', 'embedDocPrefix', 'embedQueryPrefix']; // text boxes, saved as typed (prefixes keep their spaces)
 const LANGUAGES = ['en', 'de', 'fr', 'es', 'it', 'nl', 'pt', 'pl', 'sv', 'da', 'nb', 'fi', 'cs', 'ru', 'uk', 'tr', 'ja', 'zh', 'ko', 'ar'];
 
 // Each language in its own name ("Deutsch"), with the English name alongside.
@@ -55,6 +57,9 @@ function collect() {
   out.fallbackModel = $('fallbackModel').value === OTHER ? settings.fallbackModel : $('fallbackModel').value;
   out.disableThinking = $('disableThinking').checked;
   out.verifyCitations = $('verifyCitations').checked;
+  out.semanticSearch = $('semanticSearch').checked;
+  for (const id of EMBED_FIELDS) out[id] = id.endsWith('Prefix') ? $(id).value : $(id).value.trim();
+  out.embedMinScore = Number($('embedMinScore').value) || 0;
   out.answerLanguage = $('answerLanguage').value;
   out.answerLanguageChosen = settings.answerLanguageChosen;
   for (const id of NUMBER_FIELDS) out[id] = Number($(id).value) || 0;
@@ -264,7 +269,32 @@ async function allowEndpoint(baseUrl) {
     return false;
   }
 }
-for (const id of ['disableThinking', 'verifyCitations', ...NUMBER_FIELDS]) $(id).addEventListener('change', scheduleSave);
+for (const id of ['disableThinking', 'verifyCitations', 'semanticSearch', 'embedMinScore', ...NUMBER_FIELDS, ...EMBED_FIELDS]) $(id).addEventListener('change', scheduleSave);
+
+// One real embedding request with the current fields, so a wrong address, model or key shows up here and not as a
+// silent fall-back to keyword search later.
+function embedState(state, text) {
+  $('embedStatus').hidden = false;
+  $('embedDot').className = `dot ${state}`;
+  $('embedText').textContent = text;
+  $('embedStatus').classList.toggle('err', state === 'err');
+}
+$('testEmbed').addEventListener('click', async () => {
+  const s = collect();
+  const cfg = embeddings.config({ ...s, semanticSearch: true });
+  if (!cfg) return embedState('err', 'Enter a model name: only Gemini has a default.');
+  const problem = appSettings.endpointProblem(cfg.baseUrl);
+  if (problem) return embedState('err', problem);
+  if (!cfg.gemini && !(await allowEndpoint(cfg.baseUrl))) return embedState('err', `Wiki AI isn't allowed to reach ${cfg.baseUrl}. Click Test again and choose Allow.`);
+  embedState('warn', `Asking ${cfg.model}…`);
+  const started = performance.now();
+  try {
+    const r = await embeddings.test(s);
+    embedState('ok', `${r.model} works: ${r.dims}-dimension vectors, ${Math.round(performance.now() - started)} ms.`);
+  } catch (e) {
+    embedState('err', `Failed: ${e.message}`);
+  }
+});
 $('answerLanguage').addEventListener('change', () => {
   settings.answerLanguageChosen = true; // from now on this choice wins over the default
   scheduleSave();
@@ -313,6 +343,9 @@ $('clearAll').addEventListener('click', async () => {
   $('baseUrl').value = settings.baseUrl || '';
   $('disableThinking').checked = settings.disableThinking;
   $('verifyCitations').checked = settings.verifyCitations;
+  $('semanticSearch').checked = settings.semanticSearch;
+  for (const id of EMBED_FIELDS) $(id).value = settings[id] || '';
+  $('embedMinScore').value = settings.embedMinScore || '';
   $('answerLanguage').innerHTML = languageOptions();
   $('answerLanguage').value = settings.answerLanguage || 'browser';
   for (const id of NUMBER_FIELDS) $(id).value = settings[id];
