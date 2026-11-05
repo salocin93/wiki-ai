@@ -322,8 +322,15 @@ test('llm: a JSON reply cut off goes to the fallback model, other replies are ke
     assert.deepEqual(models, ['main', 'other']);
 
     models.length = 0;
-    replies = [part];
-    assert.equal((await ask({ json: false })).content, '{"a":', 'part of an answer is still shown');
+    replies = [part, whole];
+    assert.equal((await ask({ json: false })).content, '{"a":1}', 'a cut-off answer goes to the fallback too');
+    assert.deepEqual(models, ['main', 'other']);
+
+    models.length = 0;
+    replies = [line({ choices: [{ delta: { content: 'It went to Belgium [1] and to France [29' } }] })];
+    const alone = await llm.chatWithFallback({ settings: { ...settings, fallbackModel: '' }, messages: [] });
+    assert.equal(alone.content, 'It went to Belgium [1] and to France', 'nowhere to switch to: kept, without the half citation');
+    assert.equal(alone.cutOff, true);
     assert.deepEqual(models, ['main']);
 
     models.length = 0;
@@ -401,6 +408,38 @@ test('agent: the links with something to say survive the cut in a topic article\
   const list = r.connections('A');
   assert.ok(list.split('\n')[1].includes('A → Strong'), list);
   assert.equal(list.split('\n').length, 15, 'the list stays at 14 links');
+});
+
+test('agent: a rewrite that comes back empty or cut off keeps the draft, without its unbacked sentences', async () => {
+  const draft = 'Ada was born in 1815 [1]. She visited Paris in 1999 [1].';
+  const raw = `${draft}\n<followups>\n- One about Babbage?\n- Two about Byron?\n- Three about engines?\n</followups>`;
+  const passage = { lang: 'en', page: 'T', section: 'Introduction', text: 'Ada was born in 1815.' };
+  const realChat = llm.chat;
+  const realPage = wiki.getIndexedPage;
+  wiki.getIndexedPage = async () => ({ page: { title: 'T' }, chunks: [passage], index: { search: () => [] } });
+  const answerWith = async (rewrite) => {
+    const replies = [{ content: draft, raw }, rewrite];
+    let calls = 0;
+    llm.chat = async () => ({ reasoning: '', raw: '', toolCalls: [], model: 'm', ...replies[calls++] });
+    const r = run({ settings: { maxSteps: 6, fallbackModel: '' } });
+    r.emit = () => {};
+    r.page.visibleSection = null;
+    const answer = await r.run();
+    return { answer, calls, followups: r.followups };
+  };
+  try {
+    for (const rewrite of [{ content: '' }, { content: 'Ada was born', cutOff: true }]) {
+      const { answer, calls, followups } = await answerWith(rewrite);
+      assert.equal(answer, 'Ada was born in 1815 [1].');
+      assert.equal(calls, 2, 'no third request');
+      assert.equal(followups.length, 3, "the draft's follow-ups");
+    }
+    const whole = await answerWith({ content: 'Ada, born in 1815 [1].', raw: '<followups>\n- A one?\n- A two?\n</followups>' });
+    assert.equal(whole.answer, 'Ada, born in 1815 [1].', 'a finished rewrite is used');
+  } finally {
+    llm.chat = realChat;
+    wiki.getIndexedPage = realPage;
+  }
 });
 
 test('sections: the heading the reader is at', () => {
