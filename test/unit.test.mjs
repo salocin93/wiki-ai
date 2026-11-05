@@ -291,6 +291,50 @@ test('types: priority order, dated items as events, a query that walks up from t
   assert.equal(await articleTypes.articleType('not an id'), 'other', 'no request for a malformed id');
 });
 
+test('llm: a JSON reply cut off goes to the fallback model, other replies are kept', async () => {
+  const realFetch = globalThis.fetch;
+  const realLog = [console.info, console.warn];
+  console.info = console.warn = () => {};
+  const line = (o) => `data: ${JSON.stringify(o)}\n\n`;
+  const part = line({ choices: [{ delta: { content: '{"a":' } }] });
+  const whole = line({ choices: [{ delta: { content: '{"a":1}' }, finish_reason: 'stop' }] }) + 'data: [DONE]\n\n';
+  const models = [];
+  let replies = [];
+  globalThis.fetch = async (_url, { body }) => {
+    models.push(JSON.parse(body).model);
+    return new Response(replies.shift(), { status: 200 });
+  };
+  const settings = { ...appSettings.DEFAULTS, apiKey: 'k', model: 'main', fallbackModel: 'other' };
+  const ask = (o = {}) => llm.chatWithFallback({ settings, messages: [], json: true, ...o });
+  try {
+    replies = [part, whole];
+    assert.equal((await ask()).content, '{"a":1}', 'the stream ended early');
+    assert.deepEqual(models, ['main', 'other']);
+
+    models.length = 0;
+    replies = [line({ choices: [{ delta: { content: '{"a":' }, finish_reason: 'length' }] }), whole];
+    assert.equal((await ask()).content, '{"a":1}', 'the token limit ran out');
+    assert.deepEqual(models, ['main', 'other']);
+
+    models.length = 0;
+    replies = [part, part];
+    await assert.rejects(ask(), /cut off/, 'no third request');
+    assert.deepEqual(models, ['main', 'other']);
+
+    models.length = 0;
+    replies = [part];
+    assert.equal((await ask({ json: false })).content, '{"a":', 'part of an answer is still shown');
+    assert.deepEqual(models, ['main']);
+
+    models.length = 0;
+    replies = [line({ choices: [{ delta: { content: '{"a":1}' } }] }) + 'data: [DONE]\n\n'];
+    assert.equal((await ask()).content, '{"a":1}', 'a server that ends without a finish reason');
+  } finally {
+    globalThis.fetch = realFetch;
+    [console.info, console.warn] = realLog;
+  }
+});
+
 test('sections: the heading the reader is at', () => {
   const at = (tops) => sectionNames.readingIndex(tops, 768);
   assert.equal(at([300, 900]), -1, 'still in the introduction');

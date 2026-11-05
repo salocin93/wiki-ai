@@ -108,9 +108,15 @@ chrome.runtime.onConnect.addListener((port) => {
       await whileBusy(async () => {
         try {
           const settings = await loadSettings();
-          const topic = await cluster.build({ settings, page: msg.page, emit, signal });
+          const step = (e) => {
+            console.info('Wiki AI: topic build:', e.text);
+            emit(e);
+          };
+          const topic = await cluster.build({ settings, page: msg.page, emit: step, signal });
+          console.info('Wiki AI: topic built', { articles: topic.pages.length, themes: topic.facets.length });
           emit({ type: 'topicBuilt', topic });
         } catch (e) {
+          if (!signal.aborted) console.error('Wiki AI: topic build failed:', e);
           emit({ type: 'topicError', message: signal.aborted ? 'Stopped.' : e.message || String(e) });
         }
       });
