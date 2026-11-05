@@ -70,6 +70,22 @@ export const pageDom = (() => {
     return all.slice(0, sectionNames.readingIndex(all.map((h) => h.getBoundingClientRect().top), window.innerHeight) + 1);
   }
 
+  // The article's own running text: no navigation boxes, fact boxes, tables or back matter.
+  let prose = null;
+  function proseText() {
+    if (prose !== null) return prose;
+    const parts = [];
+    let section = 'Introduction';
+    for (const el of article.querySelectorAll('h2, h3, h4, p, li, dd')) {
+      if (/^H\d$/.test(el.tagName)) section = headingText(el);
+      else if (!isBackMatter(section) && !el.parentElement.closest('li') && !el.closest('table, .navbox, .infobox, .sidebar, .hatnote, .reflist, .references, .mw-references-wrap, style, script')) {
+        parts.push(el.textContent);
+      }
+    }
+    prose = parts.join('\n');
+    return prose;
+  }
+
   // The name of the section the reader is looking at, cheap enough to ask while the page scrolls.
   function visibleSectionName() {
     const h = headingsUpToReading().at(-1);
@@ -398,7 +414,7 @@ export const pageDom = (() => {
 
   return {
     article, canonical, lang, title, revid: pageRevid, wikidataId,
-    headings, headingText, sectionOf, visibleSection, visibleSectionName, isBackMatter, collectLinks, pageInfo,
+    headings, headingText, sectionOf, visibleSection, visibleSectionName, proseText, isBackMatter, collectLinks, pageInfo,
     otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl,
   };
 })();

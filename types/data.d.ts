@@ -79,7 +79,8 @@ interface Topic {
   updatedAt?: number;
   facets: { name: string; why: string }[];
   pages: TopicPage[];
-  edges: [string, string][];
+  /** [from, to], with a 1 when from's introduction names to: nearly all links can be a shared navigation box. */
+  edges: [string, string, 1?][];
 }
 
 interface Settings {
