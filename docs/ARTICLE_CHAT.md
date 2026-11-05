@@ -98,6 +98,8 @@ So this question exists because Wikidata said `event` **and** the article has an
 
 **Questions built on a fact:** `phraseBook.factQuestion` counts how often the article's running text names each fact's value, leaving out navigation boxes, fact boxes, tables and back matter. The most-named value gets a question, which takes the second slot. A value the text doesn't name is ignored. Naming it doesn't prove the fact, so an answer can still correct the question. If no fact qualifies, the questions are as above.
 
+World War I has no qualifying facts today, so the table above still applies to it. For every template and rule, see [how the questions are generated](#how-the-try-asking-questions-are-generated).
+
 ### 3. You ask (no network)
 
 Clicking a question or typing one sends this to the service worker:
@@ -166,7 +168,7 @@ The question named no other article, so this added no calls.
 
 **Result in this log:** it took 2.44s, finished normally (`finish: stop`) and wrote 2,634 characters. No tools were used.
 
-**Failures:** on a 503 or 429 it switches to the fallback model for the rest of the answer. Without a fallback, it waits and retries as the build does.
+**Failures:** on a 503 or 429, or if the stream is cut off before the server says it has finished, it switches to the fallback model for the rest of the answer. Without a fallback, a 503 or 429 waits and retries as the build does, and a cut-off reply is kept without any half-written citation.
 
 ### 9. Run any tools the model asks for (not used here)
 
@@ -190,6 +192,7 @@ Before you see anything, `grounding.check` compares the answer's details, such a
 | Situation | What happens | Extra model calls |
 |---|---|---|
 | A detail isn't in the sources | Asks once to fix it (prompt below), and removes whatever still isn't backed | 1 |
+| That rewrite comes back empty or cut off | Keeps the earlier draft and its follow-ups, without the unbacked sentences | 0 |
 | Reply is only reasoning | Asks once more, directly, with thinking low or off and double the tokens | 1 |
 | Reply says "the article doesn't say" without opening another one | Asks once to open the relevant article | 1 |
 | Check citations with the model is on (off by default) | A second model call reads each cited sentence next to its passage | 1 per check |
@@ -202,6 +205,185 @@ None of these happened here. While the answer is being written you only see its 
 The `<followups>` block is removed from the answer and shown as buttons, minus questions already asked or already answered. The chat is saved in `chrome.storage.local`, including the numbered sources.
 
 This answer cited passages 1, 4, 6, 13, 14 and 15.
+
+## How the "Try asking" questions are generated
+
+No model is involved. These questions are templates filled in from the page, Wikidata and the topic's saved data. They only appear while a chat is empty.
+
+All templates are in `content/phrases.js`. The English ones below are generated from that file, and each also exists in German, French, Spanish and Italian. `{{T}}` is the article title and `{{V}}` is a fact's value.
+
+### Which list gets used
+
+```
+Topic active on this page?       → topic questions
+Disambiguation page?             → the meanings list
+No sections apart from back matter? → the stub list
+Otherwise                        → the article questions below
+```
+
+### Article chats
+
+The panel builds three buttons:
+
+| Slot | With a known type | With no type, or type `other` |
+|---|---|---|
+| 1 | The type's first question | Summarize "{{T}}" |
+| 2 | **A fact question** if there is one, otherwise the type's second question. If neither exists, there are only two buttons | **A fact question** if there is one, otherwise explain the section on screen, or how {{T}} connects to its most-mentioned link |
+| 3 | Explain the section on screen, or Summarize "{{T}}" in the intro or back matter | With a fact question: explain the section on screen, or the read-next question. Otherwise the read-next question |
+
+**Example:** on Ada Lovelace, a `person` with a qualifying fact, the buttons are "What is Ada Lovelace best known for?", "How did Lord Byron shape the life of Ada Lovelace?" and the summary. World War I has no qualifying facts today, so it keeps its typed questions.
+
+### Questions by type
+
+The type comes from [the Wikidata check](#1-open-the-panel-and-check-the-subject-type-call-1). The first question of each type always qualifies. The others need a section heading containing one of the listed keywords.
+
+| Type | Question | Needs a heading with |
+|---|---|---|
+| `person` | What is {{T}} best known for? | Always |
+| `person` | What were the turning points in the life of {{T}}? | early life, life, biography, career, personal life, childhood |
+| `person` | What is the legacy of {{T}}? ⭐ | legacy, influence, reception, impact, commemoration, honours, honors |
+| `place` | What is “{{T}}” known for? | Always |
+| `place` | How did “{{T}}” develop over the centuries? | history, origins, development |
+| `place` | What are the geography and climate of “{{T}}” like? | geography, climate, location, topography |
+| `place` | What are the main sights and cultural highlights of “{{T}}”? | culture, landmarks, sights, architecture, tourism, attractions |
+| `event` | What happened in “{{T}}”, and why did it matter? | Always |
+| `event` | What led to “{{T}}”? | background, causes, cause, prelude, origins |
+| `event` | What were the consequences of “{{T}}”? ⭐ | aftermath, consequences, impact, significance, legacy |
+| `work` | What is “{{T}}”, and what makes it notable? | Always |
+| `work` | How did “{{T}}” come about? | background, history, composition, creation, writing, origins, development |
+| `work` | How is “{{T}}” structured? | structure, plot, synopsis, contents, content, composition, music, description |
+| `work` | How was “{{T}}” received, then and later? ⭐ | reception, legacy, influence, critical response |
+| `religion` | What are the origins and meaning of “{{T}}”? | Always |
+| `religion` | What are the central beliefs and practices of “{{T}}”? | beliefs, belief, teachings, doctrine, theology, practices, worship, cult, mythology, attributes |
+| `religion` | How did “{{T}}” develop over time? | history, origins, development |
+| `group` | How did “{{T}}” come about, and what is it known for? | Always |
+| `group` | Who were the most important members of “{{T}}”? | members, rulers, monarchs, family, line, branches, lineup, personnel, heads |
+| `group` | How did “{{T}}” change over time? | history, origins, development |
+| `concept` | Explain “{{T}}” in simple terms | Always |
+| `concept` | How does “{{T}}” work? | mechanism, process, overview, principle, theory, how it works |
+| `concept` | Why does “{{T}}” matter, and where does it play a role? ⭐ | applications, uses, significance, importance, role |
+| `concept` | How was “{{T}}” discovered and developed? | history, origins, development |
+
+⭐ = outward-looking. If one qualifies, it takes the second place after the type's first question, so the two don't cover the same ground. Otherwise the next qualifying question does.
+
+**How headings match:** `typedQuestions` checks every heading outside the back matter, ignoring case.
+- **Most languages:** a whole word with an optional plural, so "life" doesn't match "Lifestyle" and "cult" doesn't match "Culture".
+- **German:** the start of a word, to catch compounds like "Lebenslauf". The keywords `kult` and `lage` are exact, so they don't match "Kultur" or "Lagerung".
+
+`dated` counts as `event`. `other` has no questions of its own, so it uses the general list.
+
+### Questions built on a fact
+
+`phraseBook.factQuestion` builds at most one question:
+
+1. **Get the facts:** [the facts lookup](#1b-fetch-facts-about-the-subject-added-after-this-log) returns each fact's property and the value's article title in this Wikipedia.
+2. **Count mentions:** for each fact, it counts how often the article's running text names the value, as whole words and matching case. It looks for the title without any bracketed part, and for any link text the article uses for that article.
+3. **Pick one:** the most-named value wins. A value the text never names is skipped, and a tie goes to the property higher in the table below.
+4. **Fill in the template:** bracketed parts are dropped, unless both titles would then read the same. For example, "I, Robot (film)" keeps its brackets next to "I, Robot".
+
+| Fact | Property | Question |
+|---|---|---|
+| cast member | `P161` | What role does {{V}} play in “{{T}}”? |
+| notable work | `P800` | Why does {{V}} matter in the career of {{T}}? |
+| influenced by | `P737` | How did {{V}} influence {{T}}? |
+| part of the series | `P179` | How does “{{T}}” fit into “{{V}}”? |
+| follows | `P155` | How does “{{T}}” follow from “{{V}}”? |
+| award received | `P166` | Why did {{T}} receive “{{V}}”? |
+| nominated for | `P1411` | Why was {{T}} nominated for “{{V}}”? |
+| father | `P22` | How did {{V}} shape the life of {{T}}? |
+| mother | `P25` | How did {{V}} shape the life of {{T}}? |
+| position held | `P39` | What did {{T}} do as {{V}}? |
+| political party | `P102` | What was the role of {{T}} in “{{V}}”? |
+| sports team | `P54` | What was the role of {{T}} in “{{V}}”? |
+| founded by | `P112` | What was the role of {{V}} in “{{T}}”? |
+| owned by | `P127` | What was the role of {{V}} in “{{T}}”? |
+
+- **What the running text is:** paragraphs and list items, without tables, navigation boxes, fact boxes, sidebars, hatnotes, references or back-matter sections (`proseText` in `content/page.js`).
+- **Why these 14:** they did best when candidates were run through the real answering code on 100 articles. Education, director, spouse and performer were dropped because the articles rarely answered them.
+- **Wording:** role questions don't assume a detail, so founder gives "What was the role of {{V}} in "{{T}}"?". Naming a value doesn't prove the fact, so an answer can still correct the question.
+
+**The query**, with `{{QID}}` and `{{LANG}}` as the dynamic values:
+
+```sparql
+SELECT DISTINCT ?w ?title WHERE {
+    VALUES ?w { wdt:P161 wdt:P800 wdt:P737 wdt:P179 wdt:P155 wdt:P166 wdt:P1411 wdt:P22 wdt:P25 wdt:P39 wdt:P102 wdt:P54 wdt:P112 wdt:P127 }
+    ?prop wikibase:directClaim ?w ; wikibase:claim ?claim ; wikibase:statementProperty ?value .
+    wd:{{QID}} ?claim ?st . ?st ?value ?v ; wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank)
+    ?article schema:about ?v ; schema:isPartOf <https://{{LANG}}.wikipedia.org/> ; schema:name ?title .
+  } LIMIT 500
+```
+
+### General questions
+
+| Situation | Questions |
+|---|---|
+| Summary | Summarize “{{T}}” in a few bullet points |
+| The section on screen | Explain the section “{{SECTION}}” |
+| Most-mentioned link, in the intro with no type | How is “{{T}}” connected to “{{LINK}}”? |
+| No such link | Explain the section I am reading |
+| Read next | Which linked articles should I read next, and why? |
+| **Stub** | The summary and read-next questions only |
+| **Disambiguation page** | Which meanings of “{{T}}” are listed here?, then What is “{{LINK}}”? for the first two links mentioned in the text |
+
+### Which section counts as on screen
+
+`visibleSectionName` uses the last heading in the top 35% of the window. A heading within 120px of the top wins over any below it, because that's where a link to a section lands. The Introduction and back matter don't count as a section being read.
+
+While a chat is empty and no topic is active, the panel rechecks at most every 150ms as you scroll, and only changes the buttons' text.
+
+### Timing
+
+The questions appear at once, then redraw when an answer arrives from Wikidata:
+
+| Moment | Buttons |
+|---|---|
+| Panel opens | General questions |
+| The type arrives | Typed questions |
+| Facts arrive | The fact question takes slot 2 |
+| A lookup fails | Whatever was showing stays. It tries again the next time the panel opens |
+
+Both lookups are cached for 24 hours, so a repeat visit shows the final buttons much sooner.
+
+### Topic chats
+
+In a topic, `phraseBook.topicQuestions` builds these from the saved topic, in this order:
+
+| Order | Question | When |
+|---|---|---|
+| 1 | Give me an overview of this topic and its main themes | Always |
+| 2 | The question for the topic's `kind` | If the kind isn't `mixed` |
+| 3 | How is “{{THEME_1}}” connected to “{{THEME_2}}”? | With at least two themes that have articles. Otherwise: How are the articles in this topic connected? |
+| 4 | What should I know about “{{THEME_3}}”? | With no kind question and a third theme |
+| 5 | Which articles in this topic should I read first, and why? | On the starting article. Otherwise: How does {{T}} fit into this topic? |
+
+| Topic kind | Question |
+|---|---|
+| `people` | How did these people influence each other? |
+| `family` | How are the branches of this family related, and who were its key figures? |
+| `events` | In what order did these events happen, and how did each lead to the next? |
+| `places` | How do these places compare, and how are they connected? |
+| `works` | How do these works relate to each other? |
+| `ideas` | How do these ideas build on or challenge each other? |
+
+The model chooses `kind` when the topic is built (see `docs/TOPIC_BUILD.md`), which is the only model involvement. The theme named "Added by you" isn't used.
+
+### Language
+
+`phraseCode` chooses the language of the templates:
+
+| Answer language setting | Questions use |
+|---|---|
+| My language, from the browser (default) | The browser's language |
+| Same as the Wikipedia article | The article's language |
+| A specific language | That language |
+| Same as my question | The browser's language, because there's no question yet |
+
+Languages other than those five get English. Titles and fact values stay in the article's language, so a question can mix languages.
+
+### Other questions
+
+- **Follow-ups after an answer:** these do come from the model. See the follow-up rule in [the system message](#system-message) and [step 11](#11-show-the-answer-no-network).
+- **Questions from earlier chats:** an empty chat can also link to follow-ups you haven't asked yet, under Topic › Questions to explore. It shows the count, not the questions.
 
 ## The prompt
 

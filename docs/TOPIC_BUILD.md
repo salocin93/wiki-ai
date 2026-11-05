@@ -312,6 +312,8 @@ These are also two different labels:
 | Decided by | Wikidata's data | The model |
 | Used for | "Try asking" questions in an article chat | "Try asking" questions in a topic chat |
 
+Every template and rule is in [how the "Try asking" questions are generated](ARTICLE_CHAT.md#how-the-try-asking-questions-are-generated).
+
 It could be passed in, to tell the model "this article is about an event" at no extra cost, but the model already got this one right.
 
 ## Timing in this log
