@@ -125,18 +125,19 @@ const TYPED = {
     },
   },
   de: {
+    compounds: true, // German builds long words ("Lebenslauf"), so keywords match the start of a word
     sections: {
       life: ['leben', 'biografie', 'biographie', 'werdegang', 'karriere', 'jugend', 'kindheit'],
       legacy: ['nachwirkung', 'rezeption', 'wirkung', 'vermächtnis', 'nachleben', 'ehrung', 'gedenken'],
       history: ['geschichte', 'entwicklung', 'ursprung', 'entstehung'],
-      geography: ['geografie', 'geographie', 'lage', 'klima'],
+      geography: ['geografie', 'geographie', 'lage$', 'klima'],
       culture: ['kultur', 'sehenswürdigkeiten', 'architektur', 'bauwerke', 'tourismus'],
       cause: ['vorgeschichte', 'hintergrund', 'ursache', 'ausgangslage'],
       aftermath: ['folgen', 'auswirkung', 'nachwirkung', 'bedeutung'],
       creation: ['entstehung', 'hintergrund', 'geschichte', 'komposition'],
       structure: ['aufbau', 'inhalt', 'handlung', 'struktur', 'gliederung', 'musik', 'besetzung'],
       reception: ['rezeption', 'wirkung', 'nachwirkung', 'aufnahme', 'kritik'],
-      beliefs: ['lehre', 'glaube', 'theologie', 'praxis', 'kult', 'mythologie', 'verehrung'],
+      beliefs: ['lehre', 'glaube', 'theologie', 'praxis', 'kult$', 'mythologie', 'verehrung'],
       members: ['mitglieder', 'herrscher', 'linie', 'familie', 'stammliste', 'besetzung'],
       mechanism: ['mechanismus', 'ablauf', 'funktionsweise', 'prinzip', 'grundlagen', 'theorie'],
       applications: ['anwendung', 'bedeutung', 'verwendung', 'nutzung'],
@@ -266,20 +267,67 @@ const TYPED = {
   },
 };
 
-// Up to `max` questions for an article of this type: the general one first, then those whose section exists.
+// Sections about what a subject left behind or did to the world, rather than what it was.
+const OUTWARD = new Set(['legacy', 'aftermath', 'reception', 'applications']);
+
+// A pattern for a section's keywords: whole words with an optional plural, so "life" doesn't match "Lifestyle" or
+// "cult" "Culture". In a language with `compounds`, the start of a word, unless the keyword ends in $.
+function sectionPattern(words, compounds) {
+  const end = '(?:e?s)?(?![\\p{L}\\p{N}])';
+  const alternatives = words.map((w) => {
+    const whole = !compounds || w.endsWith('$');
+    return w.replace(/\$$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (whole ? end : '');
+  });
+  return new RegExp(`(^|[^\\p{L}])(${alternatives.join('|')})`, 'iu');
+}
+
+// Up to `max` questions for an article of this type, only those a section can answer: the general one first, and
+// one about the subject's effect on the world if there is one, so that they don't cover the same ground.
 function typedQuestions(code, type, title, headings, max = 2) {
   const book = TYPED[code] || TYPED.en;
   const list = book.article[type];
   if (!list) return [];
   const has = (key) => {
-    const words = book.sections[key] || [];
-    const re = new RegExp(`(^|[^\\p{L}])(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'iu');
+    const re = sectionPattern(book.sections[key] || [], book.compounds);
     return headings.some((h) => re.test(h));
   };
-  return list.filter(([, needs]) => !needs || has(needs)).slice(0, max).map(([q]) => q(title));
+  const fitting = list.filter(([, needs]) => !needs || has(needs));
+  const first = fitting.slice(0, max);
+  const outward = fitting.find(([, needs]) => OUTWARD.has(needs));
+  const picked = outward && !first.includes(outward) ? [...first.slice(0, max - 1), outward] : first;
+  return picked.map(([q]) => q(title));
+}
+
+// Starter questions for an article, from what the page shows: its name, its sections (without back matter), the
+// section being read if any, its links with how often each is mentioned, and the kind of subject once known.
+// Stubs get fewer; a disambiguation page asks which meaning.
+function starterQuestions(code, { title, type, sections, reading, links, disambiguation }) {
+  const p = PHRASES[code] || PHRASES.en;
+  if (disambiguation) return [p.meanings(title), ...links.slice(0, 2).map((l) => p.whatIs(l.title))];
+  if (!sections.length) return [p.summaryOf(title), p.readNext];
+  const typed = typedQuestions(code, type, title, sections);
+  if (typed.length) return [...typed, reading ? p.explain(reading) : p.summaryOf(title)];
+  const top = [...links].sort((a, b) => b.count - a.count)[0];
+  return [p.summaryOf(title), reading ? p.explain(reading) : top ? p.connect(title, top.title) : p.section, p.readNext];
+}
+
+// Starter questions for a topic chat. `themes` are the names of its themes that have articles; `here` is the article
+// on screen, or nothing when it's the one the topic is about.
+function topicQuestions(code, { kind, themes, here }) {
+  const p = PHRASES[code] || PHRASES.en;
+  const [a, b, c] = themes;
+  // A question that fits what the topic is about (its people, events, works …) takes the third theme's place.
+  const fitting = topicQuestion(code, kind);
+  return [
+    p.overview,
+    fitting || null,
+    a && b ? p.connect(a, b) : p.connected,
+    !fitting && c ? p.theme(c) : null,
+    here ? p.fit(here) : p.readFirst,
+  ].filter(Boolean);
 }
 
 // The question that fits a topic's kind ('people', 'family', 'events', 'places', 'works', 'ideas'), or ''.
 const topicQuestion = (code, kind) => (TYPED[code] || TYPED.en).topic[kind] || '';
 
-export const phraseBook = { get: (code) => PHRASES[code] || PHRASES.en, typedQuestions, topicQuestion, TYPED };
+export const phraseBook = { get: (code) => PHRASES[code] || PHRASES.en, typedQuestions, topicQuestion, starterQuestions, topicQuestions, TYPED };

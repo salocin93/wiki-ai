@@ -12,7 +12,7 @@ import { topicMap } from './map.js';
   // The page itself (identity, sections, links, citations in it) is read by page.js; nothing to do where it
   // found no article.
   if (!pageDom) return;
-  const { article, canonical, lang, title, wikidataId, headings, headingText, sectionOf, visibleSection, isBackMatter, collectLinks, pageInfo,
+  const { article, canonical, lang, title, wikidataId, headings, headingText, sectionOf, visibleSectionName, isBackMatter, collectLinks, pageInfo,
     otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl } = pageDom;
   const PANEL_WIDTH = 420;
 
@@ -911,38 +911,52 @@ import { topicMap } from './map.js';
   const isDisambiguation = () =>
     !!document.querySelector('#disambigbox, .dmbox-disambig') || /\b(disambiguation|begriffsklärung)\b/i.test(document.querySelector('#mw-normal-catlinks')?.textContent || '');
 
-  // Starter questions about this article, from the page itself (no model call): its name, the section
-  // on screen, its most-mentioned link. Stubs get fewer; a disambiguation page asks which meaning.
+  // Starter questions about this article, from the page itself (no model call).
+  let suggestedFor = ''; // the section on screen when they were last worked out
   function starterSuggestions() {
-    const p = phrases();
-    const linked = collectLinks().filter((l) => l.count > 0);
-    if (isDisambiguation()) {
-      return [p.meanings(title), ...linked.slice(0, 2).map((l) => p.whatIs(l.title))];
-    }
-    const sections = headings().map(headingText).filter((h) => !isBackMatter(h));
-    if (!sections.length) return [p.summaryOf(title), p.readNext];
-    const vis = visibleSection().name;
-    const reading = vis !== 'Introduction' && !isBackMatter(vis);
-    // Questions that fit the kind of article (only those its sections can answer), then the section on screen.
-    const typed = phraseBook.typedQuestions(phraseCode(), state.pageType, title, sections);
-    if (typed.length) return [...typed, reading ? p.explain(vis) : p.summaryOf(title)];
-    const top = [...linked].sort((a, b) => b.count - a.count)[0];
-    return [p.summaryOf(title), reading ? p.explain(vis) : top ? p.connect(title, top.title) : p.section, p.readNext];
+    suggestedFor = visibleSectionName();
+    return phraseBook.starterQuestions(phraseCode(), {
+      title,
+      type: state.pageType,
+      sections: headings().map(headingText).filter((h) => !isBackMatter(h)),
+      reading: suggestedFor !== 'Introduction' && !isBackMatter(suggestedFor) ? suggestedFor : '',
+      links: collectLinks().filter((l) => l.count > 0),
+      disambiguation: isDisambiguation(),
+    });
   }
 
   function topicSuggestions(t) {
-    const p = phrases();
-    const [a, b, c] = t.facets.filter((f) => f.name !== W_ADDED && t.pages.some((x) => x.facet === f.name));
-    // A question that fits what the topic is about (its people, events, works …) takes the third theme's place.
-    const kind = phraseBook.topicQuestion(phraseCode(), t.kind);
-    return [
-      p.overview,
-      kind || null,
-      a && b ? p.connect(a.name, b.name) : p.connected,
-      !kind && c ? p.theme(c.name) : null,
-      title === t.seed || title === t.name ? p.readFirst : p.fit(title),
-    ].filter(Boolean);
+    return phraseBook.topicQuestions(phraseCode(), {
+      kind: t.kind,
+      themes: t.facets.filter((f) => f.name !== W_ADDED && t.pages.some((x) => x.facet === f.name)).map((f) => f.name),
+      here: title === t.seed || title === t.name ? '' : title,
+    });
   }
+
+  // Keeps "Explain the section …" on the section on screen while the page scrolls behind an empty chat. Changes the
+  // buttons' text only, so the panel doesn't flicker and a button in focus keeps it.
+  function followSection() {
+    if (!state.open || state.view !== 'chat' || !conv() || conv().messages.length || topicHere()) return;
+    if (visibleSectionName() === suggestedFor) return;
+    const next = starterSuggestions();
+    const buttons = [...messagesEl.querySelectorAll('.suggestion')];
+    if (buttons.length !== next.length) return render();
+    buttons.forEach((b, i) => {
+      if (b.textContent !== next[i]) b.textContent = next[i];
+    });
+  }
+  let followTimer = 0;
+  // Capturing, because with the panel open the page scrolls in <body>, whose scroll events don't reach the window.
+  window.addEventListener(
+    'scroll',
+    () => {
+      followTimer ||= window.setTimeout(() => {
+        followTimer = 0;
+        followSection();
+      }, 150);
+    },
+    { passive: true, capture: true }
+  );
 
   // What the empty chat is about: the whole topic, or this article.
   function topicCard(t) {

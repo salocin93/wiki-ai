@@ -294,7 +294,17 @@ test('types: priority order, dated items as events, a query that walks up from t
 test('phrases: typed questions only where a section can answer them', async () => {
   const { phraseBook } = await import('../content/phrases.js');
   const q = (code, type, headings) => phraseBook.typedQuestions(code, type, 'X', headings);
-  assert.deepEqual(q('en', 'person', ['Early life', 'Work', 'Legacy']), ['What is X best known for?', 'What were the turning points in the life of X?']);
+  assert.deepEqual(q('en', 'person', ['Early life', 'Work']), ['What is X best known for?', 'What were the turning points in the life of X?']);
+  assert.deepEqual(q('en', 'person', ['Early life', 'Work', 'Legacy']), ['What is X best known for?', 'What is the legacy of X?'], 'its effect on the world beats more about the subject itself');
+  assert.equal(q('en', 'work', ['Background', 'Plot', 'Reception'])[1], 'How was “X” received, then and later?');
+  assert.equal(q('en', 'person', ['Lifestyle']).length, 1, '"life" is not "Lifestyle"');
+  assert.equal(q('en', 'religion', ['Culture']).length, 1, '"cult" is not "Culture"');
+  assert.equal(q('en', 'event', ['Causes of the war']).length, 2, 'plurals count, anywhere in the heading');
+  assert.equal(q('en', 'person', ['Personal life']).length, 2, 'keywords of several words');
+  assert.equal(q('fr', 'person', ['Vieux Paris']).length, 1, '"vie" is not "Vieux"');
+  assert.equal(q('de', 'person', ['Vermächtnis']).length, 2, 'letters beyond English');
+  assert.equal(q('de', 'religion', ['Kultur']).length, 1, 'German "Kult" is not "Kultur"');
+  assert.equal(q('de', 'religion', ['Kult']).length, 2);
   assert.deepEqual(q('en', 'event', ['Armies', 'Battle']), ['What happened in “X”, and why did it matter?'], 'no causes or aftermath section');
   assert.deepEqual(q('en', 'concept', ['Causes']), ['Explain “X” in simple terms'], '"uses" only counts at the start of a word');
   assert.equal(q('de', 'person', ['Lebenslauf'])[1], 'Was waren die Wendepunkte im Leben von X?', 'German compounds match by their start');
@@ -302,6 +312,31 @@ test('phrases: typed questions only where a section can answer them', async () =
   assert.deepEqual(q('xx', 'work', ['Reception']).length, 2, 'unknown languages get English');
   assert.equal(phraseBook.topicQuestion('en', 'events'), 'In what order did these events happen, and how did each lead to the next?');
   assert.equal(phraseBook.topicQuestion('en', 'mixed'), '');
+});
+
+test('phrases: starter questions for an article', async () => {
+  const { phraseBook } = await import('../content/phrases.js');
+  const links = [{ title: 'A', count: 1 }, { title: 'B', count: 5 }, { title: 'C', count: 2 }];
+  const q = (o) => phraseBook.starterQuestions('en', { title: 'X', type: undefined, sections: ['History'], reading: '', links, disambiguation: false, ...o });
+  const summary = 'Summarize “X” in a few bullet points';
+  const readNext = 'Which linked articles should I read next, and why?';
+  assert.deepEqual(q({ disambiguation: true }), ['Which meanings of “X” are listed here?', 'What is “A”?', 'What is “B”?']);
+  assert.deepEqual(q({ sections: [] }), [summary, readNext], 'a stub');
+  assert.deepEqual(q({}), [summary, 'How is “X” connected to “B”?', readNext], 'no type yet: the most-mentioned link');
+  assert.deepEqual(q({ type: 'other', reading: 'Life' }), [summary, 'Explain the section “Life”', readNext]);
+  assert.deepEqual(q({ links: [] }), [summary, 'Explain the section I am reading', readNext]);
+  assert.deepEqual(q({ type: 'person', sections: ['Legacy'], reading: 'Legacy' }), ['What is X best known for?', 'What is the legacy of X?', 'Explain the section “Legacy”']);
+  assert.deepEqual(q({ type: 'person' }), ['What is X best known for?', summary], 'the introduction on screen');
+});
+
+test('phrases: starter questions for a topic', async () => {
+  const { phraseBook } = await import('../content/phrases.js');
+  const q = (o) => phraseBook.topicQuestions('en', { kind: 'mixed', themes: [], here: '', ...o });
+  const overview = 'Give me an overview of this topic and its main themes';
+  const readFirst = 'Which articles in this topic should I read first, and why?';
+  assert.deepEqual(q({}), [overview, 'How are the articles in this topic connected?', readFirst]);
+  assert.deepEqual(q({ themes: ['A', 'B', 'C'], here: 'Y' }), [overview, 'How is “A” connected to “B”?', 'What should I know about “C”?', 'How does Y fit into this topic?']);
+  assert.deepEqual(q({ kind: 'works', themes: ['A', 'B', 'C'] }), [overview, 'How do these works relate to each other?', 'How is “A” connected to “B”?', readFirst], 'the kind takes the third theme\'s place');
 });
 
 test('agent: a search for words like "best known" reads the introduction instead', async () => {
