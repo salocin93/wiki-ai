@@ -64,13 +64,25 @@ export const pageDom = (() => {
     return h ? Number(h.tagName[1]) : 0;
   };
 
+  const isAboveFold = (h) => h.getBoundingClientRect().top < window.innerHeight * 0.35;
+
+  // The name of the section the reader is looking at, cheap enough to ask while the page scrolls.
+  function visibleSectionName() {
+    let name = 'Introduction';
+    for (const h of headings()) {
+      if (!isAboveFold(h)) break;
+      name = headingText(h);
+    }
+    return name;
+  }
+
   // The section the reader is looking at, with its text as shown on the page. Wikipedia's plain-text export
   // drops charts, family trees and many tables, so the page itself is the reliable source for "this section".
   function visibleSection() {
     let current = null;
     const stack = [];
     for (const h of headings()) {
-      if (h.getBoundingClientRect().top >= window.innerHeight * 0.35) break;
+      if (!isAboveFold(h)) break;
       const level = Number(h.tagName[1]);
       while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
       stack.push({ level, name: headingText(h) });
@@ -387,7 +399,7 @@ export const pageDom = (() => {
 
   return {
     article, canonical, lang, title, revid: pageRevid, wikidataId,
-    headings, headingText, sectionOf, visibleSection, isBackMatter, collectLinks, pageInfo,
+    headings, headingText, sectionOf, visibleSection, visibleSectionName, isBackMatter, collectLinks, pageInfo,
     otherRevision, highlightSource, licenseLine, articleUrl, linkedUrl,
   };
 })();
