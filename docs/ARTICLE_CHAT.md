@@ -189,11 +189,11 @@ Only articles the model opens get read, in full and with their tables.
 
 ### 10. Check the answer (no network by default)
 
-Before you see anything, `grounding.check` compares the answer's details, such as numbers and capitalized names, with the sources the model was shown.
+Before you see anything, `grounding.check` compares the answer's details, such as numbers and capitalized names, with the sources the model was shown. Each sentence's details must be in the passages it cites. Battle, Siege, War, Campaign and Invasion don't count as details, because the rest of the name does: a passage saying "defeated Napoleon at Leipzig" backs "Battle of Leipzig", while "Battle of Hastings" still fails on Hastings. Other leading words do count, so "captured Paris" doesn't back "Treaty of Paris".
 
 | Situation | What happens | Extra model calls |
 |---|---|---|
-| A detail isn't in the sources | Asks once to fix it (prompt below), and removes whatever still isn't backed | 1 |
+| A detail isn't in the sources, or not in the passages cited | Looks for it in the passages shown and the articles already loaded, then asks once to fix it, sending up to 6 passages it found (prompt below). Removes whatever still isn't backed | 1 |
 | That rewrite comes back empty or cut off | Keeps the earlier draft and its follow-ups, without the unbacked sentences | 0 |
 | Reply is only reasoning | Asks once more, directly, with thinking low or off and double the tokens | 1 |
 | Reply stopped early: dropped connection, token limit, a filter, or no `<followups>` block and no closing mark | Asks once more, with thinking low or off and double the tokens. If it stops early again, shows the longer reply with a note and requests no follow-up questions | 1 |
@@ -529,7 +529,11 @@ Its content comes from the page itself, because the plain text drops charts and 
 Parts of your answer aren't backed by the sources in this conversation:
 - "{{SENTENCE}}": {{WHY}}
 
-For each, cite the passage that actually says it, find it in the articles, or leave it out. Don't add anything from memory. Then write your whole answer again, with citations and the follow-up questions, as if it were your first answer: don't mention this check or call it a correction.
+Passages that mention these details:
+
+{{PASSAGES, WHEN ANY WERE FOUND}}
+
+For each, cite the passage that actually says it, find it in the articles, or leave it out. Don't add anything from memory. {{IN A TOPIC: The topic map only lists articles, so it backs nothing: don't cite or mention it.}} Keep the sentences not listed here as they are. Then write your whole answer again, with citations and the follow-up questions, as if it were your first answer: don't mention this check or call it a correction.
 ```
 
 **Open the article instead of deferring:**
