@@ -1180,7 +1180,8 @@ import { topicMap } from './map.js';
     const labelOf = new Map(cited.map((n, k) => [n, k + 1]));
     const attrs = (n) => ({ ...citeAttrs(n), label: labelOf.get(n) });
     const body = m.content ? `<div class="answer">${markdown.render(m.content, known, attrs, [], m.pending ? null : m.links)}</div>` : '';
-    const grounding = m.pending ? '' : omittedNote(m);
+    const cutNote = !m.pending && m.incomplete ? '<p class="omitted">This answer seems to stop early. Asking again may give the full version.</p>' : '';
+    const grounding = m.pending ? '' : cutNote + omittedNote(m);
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${textUtil.esc(m.status || 'Thinking')}${m.words ? ` <span class="words">· ${m.words} words</span>` : ''}</div>` : '';
     const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
     const error = m.error
@@ -1385,6 +1386,7 @@ import { topicMap } from './map.js';
         if (msg.model) m.model = msg.model;
         if (msg.followups?.length) m.followups = msg.followups;
         m.omitted = msg.omitted?.length ? msg.omitted : undefined;
+        m.incomplete = !!msg.incomplete || undefined;
         if (msg.answer) addArticleLinks(c, m, msg.read || []);
         if (msg.stopped && !m.content) m.error = 'Stopped.';
         announce(m.error || `Answer: ${spoken(m.content)}`);

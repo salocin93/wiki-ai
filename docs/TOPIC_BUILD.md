@@ -37,7 +37,7 @@ Disambiguation pages stop here with a message. Otherwise this goes to the servic
 
 ### 2. Service worker takes over (no network)
 
-`background/background.js` checks the message is well formed and loads your settings. A timer keeps the worker alive during the build. Every step is logged to the service worker's console as `Wiki AI: topic build: …`.
+`background/background.js` checks the message is well formed and loads your settings. A timer keeps the worker alive during the build. Every step is logged to the service worker's console as `Wiki AI: topic build: [seconds so far] …`.
 
 ### 3. Fetch the article's text: call #1
 
@@ -111,7 +111,7 @@ The full prompt is [below](#the-prompt). If the prompt is over the budget, the u
 
 | Situation | What happens |
 |---|---|
-| Main model returns 503, 429 or 404 | Switches to the fallback model at once, if one is set |
+| Main model returns 503, 504, 429 or 404, or goes quiet | Switches to the fallback model at once, if one is set, and logs why to the service worker's console. Quiet means 60 seconds before the reply starts or 45 between chunks for Gemini with Fast answers on, and 240 and 90 for everything else |
 | 503 or 429 with no model left to try | Waits as long as the server asks, or 10, 30, then 60 seconds. A used-up daily quota stops immediately |
 | Reply cut off or hits the token limit | Treated as a 503, so it goes to the fallback model. The build fails if there's no fallback or it's cut off too |
 | Reply is complete but isn't valid JSON | Asks once more: "That was not valid JSON. Reply again with only the JSON object." |
