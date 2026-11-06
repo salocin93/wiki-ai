@@ -247,6 +247,37 @@ test('agent: follow-ups already asked or already answered are dropped', () => {
   assert.deepEqual(kept, ['What did Babbage build?']);
 });
 
+test('agent: a comparison an earlier answer already made is not suggested again, other comparisons are', () => {
+  const earlier = "The Voltigeurs of the Guard served as an elite component of the French Imperial Guard, with a role and history distinct from the standard line voltigeurs:\n\n*   **1813–1814 Campaigns:** While the quality of regular voltigeur units declined significantly following the 1812 Russian campaign, the Voltigeurs of the Guard continued to perform admirably [6].\n*   **Battle of Waterloo:** Alongside the Tirailleurs, they conducted a tenacious defense of Plancenoit against a major Prussian flanking attack [19].";
+  const r = run({
+    question: 'What happened to the Young Guard during the French invasion of Russia?',
+    history: [{ role: 'user', content: 'What was the role of the Voltigeurs of the Guard during the Napoleonic Wars?' }, { role: 'assistant', content: earlier }],
+  });
+  const repeat = 'How did the role of the Voltigeurs of the Guard differ from regular line voltigeurs?';
+  const fresh = [
+    'What was the difference between the Young Guard and the Old Guard?',
+    'How did the Voltigeurs of the Guard differ from the Tirailleurs?',
+    'How did the Battle of Waterloo differ from the Battle of Leipzig?',
+    'What tactics did the Chasseurs use compared with the Grenadiers?',
+    'What was the role of the Old Guard at Waterloo?',
+    'How did Prussian flanking attacks shape the defense of Plancenoit?',
+  ];
+  assert.deepEqual(r.freshFollowups([repeat, ...fresh], 'They suffered massive losses [6].'), fresh);
+  const fromThisAnswer = run({ question: 'Q?' }).freshFollowups([repeat], earlier);
+  assert.deepEqual(fromThisAnswer, [], 'the answer just given counts too');
+  assert.deepEqual(run({ question: 'Q?' }).freshFollowups([repeat], 'The role of the Voltigeurs of the Guard and the line voltigeurs was regular [1].'), [repeat], 'no sentence that compares: stays');
+  assert.deepEqual(
+    run({ question: 'Q?' }).freshFollowups(['Wie unterschied sich die Rolle der Garde von der Linie?'], 'Die Rolle der Garde unterschied sich deutlich von der Linie [1].'),
+    [],
+    'German too'
+  );
+  assert.deepEqual(
+    run({ question: 'Q?' }).freshFollowups(['En quoi le rôle de la Garde différait-il de celui de la ligne ?'], 'Le rôle de la Garde différait de celui de la ligne en quoi il était plus prestigieux [1].'),
+    [],
+    'French too'
+  );
+});
+
 test('agent: questions for private contact details are answered without lookups', () => {
   const asks = ['What is her home address?', "What's Taylor Swift's phone number?", 'Wie lautet seine Telefonnummer?', '¿Cuál es su dirección?'];
   for (const q of asks) assert.ok(agent.privateContactReply(q), q);

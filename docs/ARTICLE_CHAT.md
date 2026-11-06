@@ -207,7 +207,7 @@ None of these happened here. While the answer is being written you only see its 
 
 ### 11. Show the answer (no network)
 
-The `<followups>` block is removed from the answer and shown as buttons, minus questions already asked or already answered. The chat is saved in `chrome.storage.local`, including the numbered sources.
+The `<followups>` block is removed from the answer and shown as buttons, minus questions already asked or already answered, including a comparison one sentence of an answer already makes. The chat is saved in `chrome.storage.local`, including the numbered sources.
 
 Two things help you open the articles themselves, with no requests or model calls:
 
