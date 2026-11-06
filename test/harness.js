@@ -73,6 +73,8 @@ import { topics } from '../lib/topics.js';
       onUpdate?.({ answer: answer.slice(0, i), reasoning });
       await new Promise((r) => setTimeout(r, 15));
     }
+    // "cutoff" in the question: every reply stops mid-sentence, to see it asked for again and then shown with a note.
+    if (/cutoff/i.test(question)) return { content: 'The article covers this in a few places [1],', raw: 'The article covers this in a few places [1],', toolCalls: [], model: 'fake-model', cutOff: true, finish: 'content_filter' };
     const q = question.trim().replace(/\?$/, '');
     // "late" in the question: no follow-up questions with the answer, so the slow extra request above is made.
     const raw = /late/i.test(question) ? answer : `${answer}\n\n<followups>\n- What came before: ${q}?\n- Which article explains the background of ${q}?\n- How does this compare with neighbouring dynasties?\n</followups>`;

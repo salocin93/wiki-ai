@@ -519,6 +519,127 @@ test('agent: an answer that brings its own follow-up questions makes no extra re
   }, { raw });
 });
 
+// The real stream parser under the agent: the main model is unavailable, the fallback answers with these bodies in turn.
+async function answerAfterOutage(bodies, { fail = false } = {}) {
+  const realFetch = globalThis.fetch;
+  const realLog = [console.info, console.warn];
+  const realPage = wiki.getIndexedPage;
+  console.info = console.warn = () => {};
+  wiki.getIndexedPage = async () => ({ page: { title: 'T' }, chunks: [{ lang: 'en', page: 'T', section: 'Introduction', text: 'Ada was born in 1815.' }], index: { search: () => [] } });
+  const requests = [];
+  globalThis.fetch = async (_url, { body }) => {
+    const { model, max_tokens: maxTokens } = JSON.parse(body);
+    requests.push({ model, maxTokens });
+    if (model === 'main') return new Response('{"error":{"message":"overloaded"}}', { status: 503 });
+    if (!bodies.length) return fail ? new Response('{"error":{"message":"overloaded"}}', { status: 500 }) : new Response('data: {"choices":[{"delta":{"content":"- One more question here?\\n- And another question here?"},"finish_reason":"stop"}]}\n\n', { status: 200 });
+    return new Response(bodies.shift(), { status: 200 });
+  };
+  const events = [];
+  const r = run({ settings: { maxSteps: 6, maxAnswerTokens: 1200, baseUrl: appSettings.DEFAULTS.baseUrl, apiKey: 'k', model: 'main', fallbackModel: 'backup' } });
+  r.emit = (e) => events.push(e);
+  r.page.visibleSection = null;
+  try {
+    const answer = await r.run();
+    return { answer, requests, done: events.find((e) => e.type === 'done'), trace: events.find((e) => e.type === 'trace').trace, statuses: events.filter((e) => e.type === 'status').map((e) => e.text) };
+  } finally {
+    globalThis.fetch = realFetch;
+    [console.info, console.warn] = realLog;
+    wiki.getIndexedPage = realPage;
+  }
+}
+const chunkOf = (content, finish) => `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: finish || null }] })}\n\n${finish ? 'data: [DONE]\n\n' : ''}`;
+const PARTIAL = 'Ada was born in 1815,';
+const WHOLE = 'Ada was born in 1815 [1].\n<followups>\n- Who taught her mathematics as a child?\n- What was her partnership with Charles Babbage?\n</followups>';
+
+test('agent: a reply that stopped early is asked for again, however it ended', async () => {
+  for (const [how, body] of [['connection dropped', chunkOf(PARTIAL)], ['token limit', chunkOf(PARTIAL, 'length')], ['filter', chunkOf(PARTIAL, 'content_filter')], ['early stop', chunkOf(PARTIAL, 'stop')]]) {
+    const { answer, requests, done, trace, statuses } = await answerAfterOutage([body, chunkOf(WHOLE, 'stop')]);
+    assert.equal(answer, 'Ada was born in 1815 [1].', how);
+    assert.equal(done.incomplete, false, how);
+    assert.equal(done.followups.length, 2, how);
+    assert.deepEqual(requests.map((q) => q.model), ['main', 'backup', 'backup'], how);
+    assert.equal(requests[2].maxTokens, requests[1].maxTokens * 2, `${how}: with more room`);
+    assert.ok(statuses.includes('The answer stopped early. Asking again'), how);
+    assert.ok(trace.notes.some((n) => /Reply stopped early/.test(n)), how);
+    assert.ok(trace.calls[0].failed && trace.calls[0].model === 'main', `${how}: the failed attempt is in the debug info`);
+    assert.equal(trace.calls.at(-1).finish, 'stop', how);
+  }
+});
+
+test('agent: still cut off after asking again, the longer reply is shown with a note and no follow-up request', async () => {
+  const { answer, requests, done, trace } = await answerAfterOutage([chunkOf(PARTIAL, 'content_filter'), chunkOf('Ada was', 'content_filter')]);
+  assert.equal(answer, PARTIAL);
+  assert.equal(done.incomplete, true);
+  assert.equal(done.followupsPending, false);
+  assert.equal(trace.incomplete, true);
+  assert.deepEqual(requests.map((q) => q.model), ['main', 'backup', 'backup'], 'no third answer, no suggestion request');
+});
+
+test('agent: when asking again fails, the cut-off reply is kept instead of an error', async () => {
+  const { answer, done } = await answerAfterOutage([chunkOf(PARTIAL, 'content_filter')], { fail: true });
+  assert.equal(answer, PARTIAL);
+  assert.equal(done.incomplete, true);
+});
+
+test('llm: an answer without follow-ups reads as unfinished only without a closing mark', () => {
+  assert.equal(llm.looksUnfinished({ content: PARTIAL, raw: PARTIAL }), true);
+  assert.equal(llm.looksUnfinished({ content: 'The Battle of', raw: 'The Battle of' }), true);
+  for (const content of ['Ada was born in 1815.', 'Ada was born [1]', 'Born in **1815**', '| a | b |', 'Really?', '']) assert.equal(llm.looksUnfinished({ content, raw: content }), false, content);
+  assert.equal(llm.looksUnfinished({ content: '- A list item', raw: '- A list item\n<followups>\n- A question?' }), false, 'its follow-ups came');
+});
+
+test('llm: a model gone quiet is stopped and the fallback answers; Gemini with short thinking sooner, Gemma not', async () => {
+  const realFetch = globalThis.fetch;
+  const realLog = [console.info, console.warn];
+  const realTiming = { ...llm.timing };
+  console.info = console.warn = () => {};
+  Object.assign(llm.timing, { firstReplyMs: 400, quickFirstReplyMs: 40, idleMs: 400, quickIdleMs: 40 });
+  const whole = chunkOf('{"a":1}', 'stop');
+  const hang = (signal) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  let stallAfterStart = false;
+  globalThis.fetch = async (_url, { body, signal }) => {
+    if (JSON.parse(body).model !== 'quiet') return new Response(whole, { status: 200 });
+    if (!stallAfterStart) return hang(signal);
+    const stream = new ReadableStream({
+      start(ctl) {
+        ctl.enqueue(new TextEncoder().encode(chunkOf('{"a":')));
+        signal.addEventListener('abort', () => ctl.error(signal.reason), { once: true });
+      },
+    });
+    return new Response(stream, { status: 200 });
+  };
+  const gemini = { ...appSettings.DEFAULTS, apiKey: 'k', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'quiet', fallbackModel: 'other', disableThinking: true };
+  const timed = async (settings) => {
+    const t0 = Date.now();
+    const res = await llm.chatWithFallback({ settings, messages: [] });
+    return { model: res.model, ms: Date.now() - t0 };
+  };
+  try {
+    const quick = await timed(gemini);
+    assert.equal(quick.model, 'other');
+    assert.ok(quick.ms < 300, `switched after ${quick.ms} ms`);
+
+    const thinking = await timed({ ...gemini, disableThinking: false });
+    assert.equal(thinking.model, 'other');
+    assert.ok(thinking.ms >= 350, `thinking on keeps the long wait: ${thinking.ms} ms`);
+
+    const local = await timed({ ...gemini, baseUrl: 'http://127.0.0.1:1/v1' });
+    assert.ok(local.ms >= 350, `a local server keeps the long wait: ${local.ms} ms`);
+
+    stallAfterStart = true;
+    const stalled = await timed(gemini);
+    assert.equal(stalled.model, 'other', 'a reply that stalls midway goes to the fallback too');
+    assert.ok(stalled.ms < 300, `stalled for ${stalled.ms} ms`);
+
+    stallAfterStart = false;
+    await assert.rejects(llm.chatWithFallback({ settings: { ...gemini, fallbackModel: '' }, messages: [] }), /sent nothing for 0 s/, 'nothing to switch to: an error, with the reason');
+  } finally {
+    globalThis.fetch = realFetch;
+    [console.info, console.warn] = realLog;
+    Object.assign(llm.timing, realTiming);
+  }
+});
+
 test('titles: a bracket that names which one of several is told from one that describes', () => {
   for (const t of ['Imperial Guard (Russia)', 'Treaty of Paris (1763)', 'Georgia (U.S. state)', 'Napoleon (1955 film)']) assert.ok(textUtil.qualifiedByName(t), t);
   for (const t of ['Mercury (planet)', 'Theo van Gogh (art dealer)', 'Ada Lovelace (microarchitecture)', 'Treaty of Versailles', 'Imperial Guard']) assert.ok(!textUtil.qualifiedByName(t), t);
