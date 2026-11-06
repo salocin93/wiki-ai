@@ -236,6 +236,77 @@ test('grounding: sentences are left out cleanly, empty list items too', () => {
   );
 });
 
+test('grounding: a table row is one sentence, however it reads', () => {
+  const row = '| Ulm | French victory. Napoleon won [2] |';
+  assert.deepEqual(grounding.sentences(row), [row]);
+  assert.deepEqual(grounding.check(`| A | B |\n| --- | --- |\n${row}`, 'nothing', { compareNames: true }).map((f) => f.text), [row], 'flagged whole; the header row is not');
+});
+
+test('grounding: leaving out table rows keeps a valid table', () => {
+  const table = 'Intro [1].\n\n| Battle | Winner |\n| :--- | :--- |\n| Ulm | France [2] |\n| Wagram | France [3] |\n| Leipzig | Sixth Coalition [4] |\n\nAfter [1].';
+  assert.equal(
+    grounding.withoutSentences(table, ['| Ulm | France [2] |']),
+    'Intro [1].\n\n| Battle | Winner |\n| :--- | :--- |\n| Wagram | France [3] |\n| Leipzig | Sixth Coalition [4] |\n\nAfter [1].',
+    'first row: no blank line after the header'
+  );
+  assert.equal(
+    grounding.withoutSentences(table, ['| Wagram | France [3] |']),
+    'Intro [1].\n\n| Battle | Winner |\n| :--- | :--- |\n| Ulm | France [2] |\n| Leipzig | Sixth Coalition [4] |\n\nAfter [1].',
+    'middle row: no blank line between rows'
+  );
+  assert.equal(
+    grounding.withoutSentences(table, ['| Ulm | France [2] |', '| Wagram | France [3] |', '| Leipzig | Sixth Coalition [4] |']),
+    'Intro [1].\n\nAfter [1].',
+    'no rows left: the table goes, header too'
+  );
+  const untouched = '| A | B |\n| --- | --- |\n\nOther [1]. Wrong [2].';
+  assert.equal(grounding.withoutSentences(untouched, ['Wrong [2].']), '| A | B |\n| --- | --- |\n\nOther [1].', 'a table no row was taken from stays');
+});
+
+test('grounding: a rewrite loses a first line that narrates the check, and nothing else', () => {
+  const table = '| Battle | Winner |\n| --- | --- |\n| Ulm | France [2] |';
+  assert.equal(grounding.withoutCheckTalk(`Let's check the passages for each battle to ensure exact backing.\n\n${table}`), table, 'as recorded');
+  for (const kept of [
+    table,
+    "Let's check the passages for each battle.", // nothing after it: left for the checks below it to judge
+    'Here is a table of the battles the passages cover:\n\n' + table,
+    'I will review the battles first.\n\n' + table, // no word for the sources
+    'The sources disagree on the date [1].\n\nMore [2].',
+    "Let's begin with Ulm [2].\n\nThen Wagram [3].",
+  ]) assert.equal(grounding.withoutCheckTalk(kept), kept);
+});
+
+test('agent: a rewrite that narrates the check loses that line, and a false flag asks for no rewrite', async () => {
+  const passage = { lang: 'en', page: 'T', section: 'Introduction', text: 'French victories at Ulm. Ada was born in 1815.' };
+  const realChat = llm.chat;
+  const realPage = wiki.getIndexedPage;
+  wiki.getIndexedPage = async () => ({ page: { title: 'T' }, chunks: [passage], index: { search: () => [] } });
+  const answerWith = async (replies) => {
+    let calls = 0;
+    const raw = '<followups>\n- A one about Ulm?\n- A two about Wagram?\n</followups>';
+    llm.chat = async () => ({ reasoning: '', raw, toolCalls: [], model: 'm', ...replies[calls++] });
+    const r = run({ settings: { maxSteps: 6, fallbackModel: '' } });
+    r.emit = () => {};
+    r.page.visibleSection = null;
+    return { answer: await r.run(), calls };
+  };
+  const table = '| Battle | Winner |\n| --- | --- |\n| Battle of Ulm | France [1] |';
+  try {
+    assert.deepEqual(await answerWith([{ content: table }]), { answer: table, calls: 1 }, 'Battle and France are no reason to rewrite');
+    const narrated = await answerWith([
+      { content: 'She visited Paris in 1999 [1].' },
+      { content: `Let's check the passages for each battle to ensure exact backing.\n\n${table}` },
+    ]);
+    assert.deepEqual(narrated, { answer: table, calls: 2 });
+    const first = await answerWith([{ content: `Let's check the passages for each battle.\n\n${table}` }]);
+    assert.equal(first.calls, 1);
+    assert.match(first.answer, /^Let's check/, 'only a rewrite is filtered: a first answer was never asked about the check');
+  } finally {
+    llm.chat = realChat;
+    wiki.getIndexedPage = realPage;
+  }
+});
+
 test('settings: the citation check is off unless turned on', () => {
   assert.equal(appSettings.DEFAULTS.verifyCitations, false);
 });
