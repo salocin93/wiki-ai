@@ -40,6 +40,7 @@ const openaiServer = (url, body) => ({ data: body.input.map((t, index) => ({ ind
 const AUTO = { ...appSettings.DEFAULTS, apiKey: 'chat-key', semanticSearch: true }; // Gemini, both embedding models
 const ONE = { ...AUTO, embedModel: 'gemini-embedding-001' };
 const V2 = { ...AUTO, embedModel: 'gemini-embedding-2' };
+const NOGATE = { ...ONE, embedGate: false }; // for tests of what happens once an embedding is asked for
 const LOCAL = { ...AUTO, embedBaseUrl: 'http://localhost:11434/v1', embedModel: 'nomic-embed-text' };
 
 beforeEach(async () => {
@@ -316,12 +317,13 @@ test('gate: a question keyword search already answers does not start an embeddin
   assert.match(g.reason, /keywords confident \(coverage 1\.00 ≥ 0\.7\)/);
 });
 
-test('gate: embeds when the question\'s words are spread out, or there are only a word or two to go on', async () => {
+test('gate: embeds when the question\'s words are spread out or none of them are in the article, and judges short ones by coverage', async () => {
   const e = article(GATE_TEXTS);
   assert.match((await gateOf(e, 'kittens treasury battle colour')).reason, /keywords not confident \(coverage 0\.\d\d < 0\.7\)/);
-  assert.match((await gateOf(e, 'kittens windowsill')).reason, /short question \(2 matching words\)/);
-  const none = await gateOf(e, 'heavens azure orbit'); // no keyword hits at all: the case embeddings are for
-  assert.deepEqual([none.use, none.reason], [true, 'short question (0 matching words)']);
+  const none = await gateOf(e, 'heavens azure orbit'); // no keyword hits at all: a paraphrase, the case embeddings are for
+  assert.deepEqual([none.use, none.reason], [true, 'no word of the question is in the article']);
+  const two = await gateOf(e, 'kittens windowsill'); // two matching words, both in the top passage: nothing to add
+  assert.deepEqual([two.use, two.reason], [false, 'keywords confident (coverage 1.00 ≥ 0.7)']);
 });
 
 test('gate: vectors that are already stored are always used', async () => {
@@ -353,8 +355,8 @@ test('gate: the less of the day is left, the stricter it is', async () => {
   await embeddings.spend('gemini-embedding-001', 40); // 53% of the new-article budget left
   assert.deepEqual([await decide(borderline), await decide(weak)], [false, true], 'normal: below 0.6');
   await embeddings.spend('gemini-embedding-001', 30); // 18% left
-  assert.deepEqual([await decide(borderline), await decide(weak)], [false, true], 'tight: below 0.5');
-  assert.match((await gateOf(e, weak, settings)).reason, /< 0\.5\)/);
+  assert.deepEqual([await decide(borderline), await decide(weak)], [false, true], 'tight: below 0.55');
+  assert.match((await gateOf(e, weak, settings)).reason, /< 0\.55\)/);
 });
 
 // ---------- In the agent ----------
@@ -392,7 +394,7 @@ test('agent: with semantic search off, nothing is sent anywhere', async () => {
 
 test('agent: an unrelated question falls back to the keyword results', async () => {
   const e = article(PASSAGES);
-  const r = runFor(e, ONE);
+  const r = runFor(e, NOGATE);
   await withServer(geminiServer, async () => {
     const hits = await r.retrieve(e, 'zebra daytime', 3);
     assert.equal(hits[0].doc, e.chunks[0], 'the keyword match, since no section was related enough');
@@ -403,7 +405,7 @@ test('agent: an unrelated question falls back to the keyword results', async () 
 test('agent: a failing embedding service falls back to keywords, says so once, and is not retried at once', async () => {
   const e = article(PASSAGES);
   const steps = [];
-  const r = runFor(e, ONE, steps);
+  const r = runFor(e, NOGATE, steps);
   await withServer(() => new Response(JSON.stringify({ error: { message: 'API key not valid' } }), { status: 400 }), async (calls) => {
     const hits = await r.retrieve(e, 'sunlight atmosphere', 3);
     assert.equal(hits[0].doc, e.chunks[0], 'keyword results are still returned');
@@ -418,7 +420,7 @@ test('agent: a failing embedding service falls back to keywords, says so once, a
 test('agent: not an error while sections are still being embedded or the day\'s budget is used up', async () => {
   const e = article(PASSAGES);
   const steps = [];
-  const r = runFor(e, ONE, steps);
+  const r = runFor(e, NOGATE, steps);
   embeddings.timing.scale = 0.001;
   embeddings.timing.waitMs = 20;
   try {
@@ -435,7 +437,7 @@ test('agent: not an error while sections are still being embedded or the day\'s 
   // A budget of 1 per model that is already spent
   const spent = article(PASSAGES);
   const steps2 = [];
-  const r2 = runFor(spent, { ...AUTO, embedDailyLimit: 1 }, steps2);
+  const r2 = runFor(spent, { ...AUTO, embedGate: false, embedDailyLimit: 1 }, steps2);
   await withServer(geminiServer, async () => {
     assert.equal((await r2.retrieve(spent, 'sunlight atmosphere', 3))[0].doc, spent.chunks[0]);
   });

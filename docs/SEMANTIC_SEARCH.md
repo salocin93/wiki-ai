@@ -71,11 +71,13 @@ request is spent:
 
 1. **Vectors already stored** → use them (a question then costs 1 request).
 2. **No quota to protect** (a local model, or a paid key with the daily limit at -1) or the gate switched off → use.
-3. **Short question**: two or fewer of its words exist in the article ("what do cats eat?") → use, because coverage can't judge it.
-   This includes a question with no keyword match at all, which is what embeddings are best at.
+3. **None of the question's words exist in the article** (a pure paraphrase, so there is no keyword match at all, which is what
+   embeddings are best at) → use. Questions with one or two matching words are judged by coverage like the rest: on 39 questions a
+   "short question" rule embedded 8 more times and caught no extra keyword miss.
 4. Otherwise compare the **keyword coverage** of the top passage (`BM25.confidence`: the share of the question's words, weighted by
    how rare each is, that the best passage contains) with a threshold: below it, embed; at or above it, answer from keywords.
-   The threshold is 0.7 while more than 70% of the day's new-article budget is left, 0.6 normally, 0.5 below 30%.
+   The threshold is 0.7 while more than 70% of the day's new-article budget is left, 0.6 normally, 0.55 below 30% (0.5 let two real keyword
+   misses through, at coverage 0.52 and 0.54).
 
 The debug info records each decision (`semantic gate: skip (keywords confident (coverage 0.76 ≥ 0.6))`).
 
@@ -86,7 +88,11 @@ Measured with `test/semantic-eval.mjs` (39 hard questions, keyword search only) 
 - "Embed below 0.6" sent 21 of the 39 hard questions to embeddings and caught 9 of the 11 keyword misses; below 0.7 caught all 11
   at 27 of 39. These are deliberately hard questions, so real traffic should embed much less.
 - On 11 real questions from the first sessions, it would have embedded 2 and skipped 9; 8 of those were fine, and one ("what do
-  cats eat?", coverage 1.0 because both words appear in a hunting passage) missed the *Diet* section, which rule 3 now covers.
+  cats eat?", coverage 1.0 because both words appear in a hunting passage) missed the *Diet* section. That is accepted: a rule for
+  questions with few matching words did not pay for itself on the 39.
+- On the 14 questions of the Cat and Coffee run, as first questions on a fresh article: embedding on 11, 8 or 8 of them (plenty,
+  normal or tight budget) with accuracy unchanged at 13 of 14. With a tight threshold of 0.5 it was 3 of 14 embedded and 11 of 14
+  right, which is why tight is 0.55. An article whose first question is hard gets embedded regardless.
 
 Limits: the thresholds come from 39 questions on 6 articles and may be overfitted. A question with no keyword match on an
 off-topic subject also embeds the article once ("what is the capital of Australia"), since it can't be told from a pure
