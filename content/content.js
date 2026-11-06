@@ -1046,11 +1046,16 @@ import { topicMap } from './map.js';
         d.scrollHeight - d.scrollTop - d.clientHeight < 8 ? Infinity : d.scrollTop,
       ])
     );
+    // Wide tables too: a redraw would send one back to its first column while the reader is partway across.
+    const across = [...messagesEl.querySelectorAll('.table-wrap')].map((d) => d.scrollLeft);
     patchChildren(messagesEl, [noticeCard(), ...c.messages.map(renderMessage)]);
     for (const d of messagesEl.querySelectorAll('.msg[data-i] .reasoning div')) {
       const top = thinking.get(d.closest('.msg').dataset.i);
       if (top !== undefined) d.scrollTop = top === Infinity ? d.scrollHeight : top;
     }
+    messagesEl.querySelectorAll('.table-wrap').forEach((d, k) => {
+      if (across[k]) d.scrollLeft = across[k];
+    });
     if (restoreScroll) state.pinQuestion = false;
     messagesEl.scrollTop = restoreScroll ? c.scrollTop ?? messagesEl.scrollHeight : state.pinQuestion ? questionTop() : scrollTop;
   }
@@ -1096,7 +1101,8 @@ import { topicMap } from './map.js';
     liveEl.textContent = '';
     setTimeout(() => (liveEl.textContent = text), 50);
   }
-  const spoken = (md) => textUtil.plain(md || '').replace(textUtil.CITE, '').replace(/[#*$]/g, '').slice(0, 1500);
+  // Table separator lines say nothing, and the pipes of the other rows only get read out as "vertical bar".
+  const spoken = (md) => textUtil.plain(md || '').replace(textUtil.CITE, '').replace(/^[\s|:-]*\|[\s|:-]*$/gm, '').replace(/[ \t]*(?<!\\)\|[ \t]*/g, ', ').replace(/^, |, $/gm, '').replace(/\\\|/g, '|').replace(/[#*$]/g, '').slice(0, 1500);
 
   // A new question goes to the top, and stays there as its answer streams in, so the answer is read from its start.
   function questionTop() {

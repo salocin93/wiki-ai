@@ -4,6 +4,7 @@
 import { agent } from '../lib/agent.js';
 import { appSettings } from '../lib/settings.js';
 import { cluster } from '../lib/cluster.js';
+import { grounding } from '../lib/grounding.js';
 import { llm } from '../lib/llm.js';
 import { topics } from '../lib/topics.js';
 
@@ -12,6 +13,9 @@ import { topics } from '../lib/topics.js';
   const settings = { ...appSettings.DEFAULTS, model: 'fake-model' };
   let suggestionSets = 0;
   window.__wikiaiSettings = settings; // e.g. __wikiaiSettings.verifyCitations = true, to try the citation check
+  // __wikiaiNoCheck = true: nothing gets left out by the source check, to see the scripted answer as written.
+  const realCheck = grounding.check;
+  grounding.check = (...args) => (window.__wikiaiNoCheck ? [] : realCheck(...args));
 
   // Fake model: searches the article, opens one linked article, then answers citing what it got.
   llm.chat = async ({ messages, tools, onUpdate }) => {
@@ -48,7 +52,7 @@ import { topics } from '../lib/topics.js';
     }
     const toolMsgs = messages.filter((m) => m.role === 'tool');
     // The reader's question, not the agent's own nudges ("Answer now…", the source check).
-    const question = messages.filter((m) => m.role === 'user' && !/^(Parts of your answer|Answer now|Don't send me|Write your answer)/.test(m.content)).pop().content.split('\n---')[0];
+    const question = messages.filter((m) => m.role === 'user' && !/^(Parts of your answer|Answer now|Don't send me|Write your answer|No more lookups)/.test(m.content)).pop().content.split('\n---')[0];
     const call = (name, args) => ({ content: '', toolCalls: [{ id: 'c' + toolMsgs.length, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
     await new Promise((r) => setTimeout(r, 400));
     if (tools && toolMsgs.length === 0) return call(tools.some((t) => t.function.name === 'search_topic') ? 'search_topic' : 'search_article', { query: question });
@@ -62,7 +66,13 @@ import { topics } from '../lib/topics.js';
     // "invent" in the question: a detail from memory, dropped when asked to check (unless also "stubborn").
     const checked = messages.some((m) => m.role === 'user' && m.content.startsWith("Parts of your answer aren't backed"));
     const invented = /invent/i.test(question) && (!checked || /stubborn/i.test(question)) ? '\n\nShe later moved to Montevideo in 1799 [1].' : '';
-    const answer = `Here is what I found about **${question.trim().slice(0, 60)}**.\n\nThe article covers this in a few places ${ref(0)}${ref(0, 1)}. Linked articles add detail ${ref(2)}${ref(3)}.\n\n- First point [1]\n- Second point ${ref(4)}${ref(2, 1)}${invented}`;
+    // "table" in the question: a short table with citations and alignment; "wide table": one too wide for the panel.
+    const table = /wide table/i.test(question)
+      ? `\n\n| Year | Event | Place | People involved | Written about in | Outcome | Notes |\n| ---: | :--- | :---: | --- | --- | --- | --- |\n| 1833 | Meets **Charles Babbage** at a party ${ref(0)} | London | Ada Lovelace, Charles Babbage, Mary Somerville | Correspondence | A long friendship | Babbage shows her the Difference Engine |\n| 1843 | Publishes the *Notes* ${ref(0, 1)} | London | Ada Lovelace, Luigi Menabrea | Taylor's Scientific Memoirs | Described as the first program | Note G computes Bernoulli numbers |`
+      : /table/i.test(question)
+        ? `\n\n| Year | Event | Pages |\n| ---: | :--- | :---: |\n| 1833 | Meets **Charles Babbage** ${ref(0)} | 12 |\n| 1843 | Publishes the *Notes* ${ref(0, 1)} | 66 |\n| 1852 | Dies, aged 36 \`<script>\` a\\|b | 3 |`
+        : '';
+    const answer = `Here is what I found about **${question.trim().slice(0, 60)}**.\n\nThe article covers this in a few places ${ref(0)}${ref(0, 1)}. Linked articles add detail ${ref(2)}${ref(3)}.${table}\n\n- First point [1]\n- Second point ${ref(4)}${ref(2, 1)}${invented}`;
     // "think" in the question: a long reasoning stream first, to test the Thinking box.
     const reasoning = /think/i.test(question) ? Array.from({ length: 60 }, (_, i) => `Reasoning line ${i + 1} about the question.`).join('\n') : '';
     for (let i = 1; i <= 60 && reasoning; i++) {

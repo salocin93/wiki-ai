@@ -58,6 +58,36 @@ function takeMath(src) {
   return { text, put: (html) => html.replace(/\uE010(\d+)\uE011/g, (_, k) => formulas[k]) };
 }
 
+const PIPE = /(?<!\\)\|/; // "\|" is a pipe inside a cell
+const FLAG_MARK = /\d+|/g;
+const blankCell = (c) => !c.replace(FLAG_MARK, '').trim();
+
+// The cells of a table row. A flagged sentence can run across cells, or start before the first pipe: its marks are
+// repeated in each cell it touches, since a span can't cross a cell.
+function rowCells(line) {
+  let open = '';
+  const cells = line.split(PIPE).map((part) => {
+    const cell = open + part;
+    const last = part.match(FLAG_MARK)?.pop();
+    if (last) open = last === '' ? '' : last;
+    return (open ? cell + '' : cell).replace(/\\\|/g, '|').trim();
+  });
+  if (blankCell(cells[0])) cells.shift();
+  if (cells.length && blankCell(cells[cells.length - 1])) cells.pop();
+  return cells;
+}
+
+// A table starts at a row with a separator under it, with as many cells: {head, aligns}, or null if it doesn't.
+function tableStart(line, next) {
+  if (next === undefined || !PIPE.test(line) || !PIPE.test(next)) return null;
+  const seps = rowCells(next);
+  if (!seps.length || !seps.every((c) => /^:?-+:?$/.test(c))) return null;
+  const head = rowCells(line);
+  if (head.length !== seps.length) return null;
+  const aligns = seps.map((c) => (c.endsWith(':') ? (c.startsWith(':') ? 'center' : 'right') : c.startsWith(':') ? 'left' : ''));
+  return { head, aligns };
+}
+
 // attrs(n) may return {title, className, label} for citation n; label is the number shown (default n).
 // flagged: [{text, note, kind}], sentences to underline as not matched to the sources ('uncited': no source given).
 // links: {items: [{title, lang}], self}, articles to link to at their first mention, and the article being read.
@@ -88,11 +118,33 @@ function render(src, known = () => true, attrs, flagged = [], links = null) {
     if (list) out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i, known, attrs, flags, found)}</li>`).join('')}</${list.tag}>`);
     list = null;
   };
-  for (const line of src.split('\n')) {
+  const lines = src.split('\n');
+  const blockStart = (line) => /^#{1,6}\s|^\s*[-*•]\s|^\s*\d+[.)]\s/.test(line);
+  // Short rows are filled up. Long ones keep their extra cells, so a stray pipe in a cell loses nothing.
+  const tableHtml = ({ head, aligns }, rows) => {
+    const cell = (tag, text, k) => {
+      const scope = tag === 'th' ? ' scope="col"' : '';
+      const align = aligns[k] ? ` class="al-${aligns[k]}"` : '';
+      return `<${tag}${scope}${align}>${inline(text, known, attrs, flags, found)}</${tag}>`;
+    };
+    const row = (cells, tag) => `<tr>${cells.map((c, k) => cell(tag, c, k)).join('')}${tag === 'td' ? head.slice(cells.length).map((_, k) => cell(tag, '', cells.length + k)).join('') : ''}</tr>`;
+    const body = rows.length ? `<tbody>${rows.map((r) => row(r, 'td')).join('')}</tbody>` : '';
+    return `<div class="table-wrap"><table><thead>${row(head, 'th')}</thead>${body}</table></div>`;
+  };
+  for (let n = 0; n < lines.length; n++) {
+    const line = lines[n];
     const heading = line.match(/^#{1,6}\s+(.*)$/);
     const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
     const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
-    if (heading) {
+    const table = heading || bullet || numbered ? null : tableStart(line, lines[n + 1]);
+    if (table) {
+      flushPara();
+      flushList();
+      const rows = [];
+      for (n += 2; n < lines.length && PIPE.test(lines[n]) && !blockStart(lines[n]); n++) rows.push(rowCells(lines[n]));
+      n--;
+      out.push(tableHtml(table, rows));
+    } else if (heading) {
       flushPara();
       flushList();
       out.push(`<h4>${inline(heading[1], known, attrs, flags, found)}</h4>`);

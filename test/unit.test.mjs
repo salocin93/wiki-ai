@@ -49,6 +49,97 @@ test('markdown: private-use characters in the answer are not taken for markers',
   assert.ok(!html.includes('<span') && !/[\uE000-\uF8FF]/.test(html));
 });
 
+const TABLE = '| A | B |\n| :--- | :--- |\n| x | y |';
+
+test('markdown: a table renders with its header and body, in a box of its own', () => {
+  assert.equal(
+    markdown.render('| A | B |\n| --- | --- |\n| x | y |\n| z | w |'),
+    '<div class="table-wrap"><table><thead><tr><th scope="col">A</th><th scope="col">B</th></tr></thead><tbody><tr><td>x</td><td>y</td></tr><tr><td>z</td><td>w</td></tr></tbody></table></div>'
+  );
+  assert.ok(!markdown.render(TABLE).includes('|'), 'no pipes left on show');
+  assert.ok(markdown.render('A | B\n--- | ---\nx | y').includes('<td>x</td>'), 'the outer pipes are optional');
+  assert.ok(markdown.render('| A |\n| --- |\n| x |').includes('<td>x</td>'), 'one column');
+  assert.ok(markdown.render('| A | B |\n| --- | --- |').includes('<th') && !markdown.render('| A | B |\n| --- | --- |').includes('<tbody>'), 'header alone, as while streaming');
+});
+
+test('markdown: a table sits among the other blocks', () => {
+  const html = markdown.render('Intro line\n| A | B |\n|---|---|\n| x | y |\nAfter line\n\n- item | with pipe');
+  assert.match(html, /^<p>Intro line<\/p><div class="table-wrap">/);
+  assert.match(html, /<\/table><\/div><p>After line<\/p><ul><li>item \| with pipe<\/li><\/ul>$/);
+  const blank = markdown.render('| A |\n|---|\n| x |\n\n| y |');
+  assert.ok(blank.endsWith('</table></div><p>| y |</p>'), 'a blank line ends it');
+  const inList = markdown.render('- one\n| A |\n|---|\n- two');
+  assert.match(inList, /^<ul><li>one<\/li><\/ul><div class="table-wrap">.*<\/div><ul><li>two<\/li><\/ul>$/);
+  assert.match(markdown.render('# T | U\n--- | ---'), /^<h4>T \| U<\/h4>/, 'a heading is not a table header');
+});
+
+test('markdown: table columns take their alignment from the separator', () => {
+  const html = markdown.render('| L | C | R | N |\n| :-- | :-: | --: | --- |\n| 1 | 2 | 3 | 4 |');
+  assert.ok(html.includes('<th scope="col" class="al-left">L</th><th scope="col" class="al-center">C</th><th scope="col" class="al-right">R</th><th scope="col">N</th>'));
+  assert.ok(html.includes('<td class="al-left">1</td><td class="al-center">2</td><td class="al-right">3</td><td>4</td>'));
+  assert.ok(!html.includes('style='), 'classes, not inline styles');
+});
+
+test('markdown: table cells get the same inline handling as paragraphs', () => {
+  const html = markdown.render('| **A** [2] | B |\n| --- | --- |\n| *x* [2] [9] | `y` |', (n) => n <= 3, (n) => ({ label: 1, title: `S${n}` }));
+  assert.match(html, /<th scope="col"><strong>A<\/strong> <button class="cite " data-n="2" data-label="1"/);
+  assert.match(html, /<td><em>x<\/em> <button class="cite " data-n="2"[^>]*>1<\/button><\/td>/, 'known citation kept, made-up one dropped');
+  assert.ok(html.includes('<td><code>y</code></td>'));
+  const formula = markdown.render('| $|x|$ | B |\n|---|---|\n| 1 | 2 |');
+  assert.match(formula, /^<div class="table-wrap"><table><thead><tr><th scope="col"><span class="katex">/, "a formula's pipes don't split the cell");
+  assert.equal(formula.match(/<th scope/g).length, 2);
+  const links = { items: [{ title: 'Treaty of Paris', lang: 'en' }], self: '' };
+  assert.match(markdown.render('| The Treaty of Paris | B |\n|---|---|\n| 1 | 2 |', () => true, null, [], links), /<th scope="col">The <a class="answer-link"[^>]*>Treaty of Paris<\/a><\/th>/);
+});
+
+test('markdown: table cells are escaped', () => {
+  const html = markdown.render('| <img src=x onerror=alert(1)> | "q" & |\n| --- | --- |\n| <script>x</script> | \'a\' <b> |');
+  for (const bad of ['<img', '<script', '<b>']) assert.ok(!html.includes(bad), bad);
+  assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.ok(html.includes('&lt;script&gt;x&lt;/script&gt;'));
+});
+
+test('markdown: a table cut off anywhere still renders well formed', () => {
+  const src = 'Intro [1].\n\n| A | **B** [1] |\n| :--- | ---: |\n| x | `y` [1] |\n| <z> | w\\|v |\n\nAfter.';
+  for (let end = 0; end <= src.length; end++) {
+    const html = markdown.render(src.slice(0, end));
+    for (const tag of ['div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'p']) {
+      const opens = html.match(new RegExp(`<${tag}[ >]`, 'g'))?.length || 0;
+      const closes = html.match(new RegExp(`</${tag}>`, 'g'))?.length || 0;
+      assert.equal(opens, closes, `<${tag}> at ${end} chars: ${html}`);
+    }
+    assert.ok(!html.includes('<z>'), `escaped at ${end} chars`);
+  }
+});
+
+test('markdown: only a header over a matching separator is a table', () => {
+  assert.equal(markdown.render('| a lone pipe line |'), '<p>| a lone pipe line |</p>');
+  assert.equal(markdown.render('x | y'), '<p>x | y</p>');
+  assert.equal(markdown.render('| A | B |\n| x | y |'), '<p>| A | B |<br>| x | y |</p>', 'no separator');
+  assert.equal(markdown.render('| A | B |\n| --- |'), '<p>| A | B |<br>| --- |</p>', 'separator a different size');
+  assert.equal(markdown.render('A\n---'), '<p>A<br>---</p>', 'no pipes');
+  assert.equal(markdown.render('| A | B |\n| --- | :-x |'), '<p>| A | B |<br>| --- | :-x |</p>', 'not a separator');
+  assert.equal(markdown.render('|\n|---|'), '<p>|<br>|---|</p>', 'a header with no cells');
+});
+
+test('markdown: table rows of the wrong size lose nothing', () => {
+  const short = markdown.render('| A | B |\n|:--|--:|\n| x |');
+  assert.ok(short.includes('<tr><td class="al-left">x</td><td class="al-right"></td></tr>'), 'filled up');
+  const long = markdown.render('| A | B |\n|---|---|\n| f |x| 2 |');
+  assert.ok(long.includes('<td>f</td><td>x</td><td>2</td>'), 'extra cell kept');
+  assert.ok(markdown.render('| A | B |\n|---|---|\n| a\\|b | c |').includes('<td>a|b</td><td>c</td>'), 'an escaped pipe stays in its cell');
+});
+
+test('markdown: a flagged row stays well formed, with the flag in each cell', () => {
+  const html = markdown.render('| A | B |\n|---|---|\n| x | y |\n| z | w |', () => true, null, [{ text: '| x | y |', note: 'n', kind: 'missing' }]);
+  const flagged = (t) => `<td><span class="unsupported" title="n">\\s*${t}\\s*</span></td>`;
+  assert.match(html, new RegExp(`<tr>${flagged('x')}${flagged('y')}</tr><tr><td>z</td><td>w</td></tr>`));
+  const across = markdown.render('| A | B |\n|---|---|\n| x | y |', () => true, null, [{ text: 'x | y', note: 'n', kind: 'missing' }]);
+  assert.match(across, new RegExp(`<tr>${flagged('x')}${flagged('y')}</tr>`));
+  const one = markdown.render('| A | B |\n|---|---|\n| x | y |', () => true, null, [{ text: 'y', note: 'n', kind: 'missing' }]);
+  assert.match(one, new RegExp(`<tr><td>x</td>${flagged('y')}</tr>`));
+});
+
 test('markdown: formulas render with KaTeX, prices stay text', () => {
   const html = markdown.render('Energy $E=mc^2$ costs $5 and $10.');
   assert.ok(html.includes('class="katex"'));
