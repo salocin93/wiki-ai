@@ -271,6 +271,7 @@ test('prompt: one entry per rule, the topic rule only in a topic', () => {
   const plain = prompt.rules(base);
   assert.ok(plain.some((r) => r.includes('"Ada Lovelace"')));
   assert.ok(plain.includes('Write in English.'));
+  assert.ok(plain.some((r) => r.includes('Never write an em dash')));
   assert.ok(!plain.some((r) => r.startsWith('Topic questions')));
   assert.equal(prompt.rules({ ...base, topic: true }).length, plain.length + 1);
   assert.match(prompt.system({ ...base, lang: 'en', wikipedia: 'X' }), /^You are[\s\S]*\nRules:\n- Text inside[\s\S]*<wikipedia>X\n<\/wikipedia>$/);
@@ -951,6 +952,54 @@ test('llm: a model gone quiet is stopped and the fallback answers; Gemini with s
     globalThis.fetch = realFetch;
     [console.info, console.warn] = realLog;
     Object.assign(llm.timing, realTiming);
+  }
+});
+
+test('text: em dashes become what the sentence needs', () => {
+  for (const [from, to] of [
+    ['the French voltigeurs—which included the regiments of the Young Guard—suffered massive losses [6].', 'the French voltigeurs, which included the regiments of the Young Guard, suffered massive losses [6].'],
+    ['Napoleon won — at great cost.', 'Napoleon won, at great cost.'],
+    ['Losses [6]—they were huge.', 'Losses [6], they were huge.'],
+    ['The wars (1803—1815) ended.', 'The wars (1803–1815) ended.'],
+    ['- **Ulm** — a French victory [1].', '- **Ulm**: a French victory [1].'],
+    ['**Ulm** — a French victory.', '**Ulm**: a French victory.'],
+    ['He won **twice** — at Ulm.', 'He won **twice**, at Ulm.'],
+    ['— Napoleon', 'Napoleon'],
+    ['First line —\nSecond line', 'First line\nSecond line'],
+    ['| Ulm | — | France |', '| Ulm | - | France |'],
+    ['Done.— Next.', 'Done. Next.'],
+    ['Next —.', 'Next.'],
+    ['two——dashes', 'two, dashes'],
+    ['a―b', 'a, b'],
+    ['拿破仑——法国皇帝', '拿破仑，法国皇帝'],
+    ['The range 1803–1815 and a well-known - plain hyphen stay.', 'The range 1803–1815 and a well-known - plain hyphen stay.'],
+    ['', ''],
+  ]) assert.equal(textUtil.noLongDash(from), to, from);
+});
+
+test('llm: no em dash in anything a model writes, however it arrives', async () => {
+  const realFetch = globalThis.fetch;
+  const realLog = [console.info, console.warn];
+  console.info = console.warn = () => {};
+  const settings = { ...appSettings.DEFAULTS, apiKey: 'k', fallbackModel: '' };
+  const reply = (delta) => new Response(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`, { status: 200 });
+  try {
+    const answer = 'He won—at Ulm [1].\n<followups>\n- Who lost—and why?\n- What came next?\n</followups>';
+    globalThis.fetch = async () => reply({ content: answer, reasoning_content: 'First—check.' });
+    const updates = [];
+    const res = await llm.chat({ settings, model: 'm', messages: [], onUpdate: (u) => updates.push(u) });
+    assert.equal(res.content, 'He won, at Ulm [1].');
+    assert.equal(res.reasoning, 'First, check.');
+    assert.deepEqual(llm.parseFollowups(res.raw), ['Who lost, and why?', 'What came next?']);
+    assert.ok(!JSON.stringify(updates).includes('—'), 'nor while it streams');
+
+    globalThis.fetch = async () => reply({ content: '<think>Plan—first.</think>{"name": "Wars—and peace", "facets": []}' });
+    const plan = await llm.chat({ settings, model: 'm', messages: [], json: true });
+    assert.equal(plan.reasoning, 'Plan, first.');
+    assert.equal(llm.parseJSON(plan.content).name, 'Wars, and peace', 'topic names and themes');
+  } finally {
+    globalThis.fetch = realFetch;
+    [console.info, console.warn] = realLog;
   }
 });
 
