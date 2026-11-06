@@ -1290,6 +1290,11 @@ import { topicMap } from './map.js';
   // What happened while answering, per answer, for "Copy debug info". Kept in memory only, never saved.
   const traces = new WeakMap();
 
+  // Answers still waiting for their follow-up questions, which arrive after the answer is done. By request id, so a late
+  // event never lands on the next question's answer; a few at most, as stopping or asking again drops the rest.
+  let requestSeq = 0;
+  const awaitingFollowups = new Map();
+
   // Saved with the answer, as the chat may be reopened from another page. Links come from the articles this page links
   // to (without dates, lists and reference plumbing), those read during the chat, and the topic's.
   function addArticleLinks(c, m, read) {
@@ -1307,6 +1312,18 @@ import { topicMap } from './map.js';
   }
 
   function onAgentMessage(msg) {
+    if (msg.type === 'followups') {
+      const late = awaitingFollowups.get(msg.rid);
+      awaitingFollowups.delete(msg.rid);
+      // The chat may have been closed or deleted meanwhile.
+      if (!late || !late.c.messages.includes(late.m)) return;
+      if (msg.followups?.length) late.m.followups = msg.followups;
+      if (msg.trace) traces.set(late.m, msg.trace);
+      saveConv(late.c);
+      if (late.c === conv()) scheduleRender();
+      if (state.view === 'topic') renderTopic(); // "Questions to explore" draws on the follow-ups
+      return;
+    }
     if (msg.type === 'topicProgress' || msg.type === 'topicBuilt' || msg.type === 'topicError') {
       if (msg.type === 'topicProgress') state.building = BUILDING; // the steps are internal detail
       if (msg.type === 'topicBuilt') {
@@ -1362,6 +1379,7 @@ import { topicMap } from './map.js';
         c.sources = msg.sources;
         break;
       case 'done':
+        if (!msg.followupsPending) awaitingFollowups.delete(msg.rid);
         m.pending = false;
         if (msg.answer) m.content = msg.answer;
         if (msg.model) m.model = msg.model;
@@ -1373,6 +1391,7 @@ import { topicMap } from './map.js';
         finish();
         break;
       case 'error':
+        awaitingFollowups.delete(msg.rid);
         m.pending = false;
         m.error = msg.message;
         announce(msg.message);
@@ -1405,6 +1424,9 @@ import { topicMap } from './map.js';
     c.title ||= question;
     c.messages.push({ role: 'user', content: question, quote });
     c.messages.push({ role: 'assistant', content: '', steps: [], pending: true, status: 'Starting' });
+    const rid = ++requestSeq;
+    awaitingFollowups.set(rid, { c, m: c.messages[c.messages.length - 1] });
+    while (awaitingFollowups.size > 5) awaitingFollowups.delete(awaitingFollowups.keys().next().value);
     state.request = c;
     setQuote(null);
     input.value = '';
@@ -1415,6 +1437,7 @@ import { topicMap } from './map.js';
     render();
     connect().postMessage({
       type: 'ask',
+      rid,
       question,
       history,
       sources: c.sources,
