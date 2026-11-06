@@ -109,12 +109,14 @@ chrome.runtime.onConnect.addListener((port) => {
       await whileBusy(async () => {
         try {
           const settings = await loadSettings();
+          const startedAt = Date.now();
+          const elapsed = () => (Date.now() - startedAt) / 1000;
           const step = (e) => {
-            console.info('Wiki AI: topic build:', e.text);
+            console.info(`Wiki AI: topic build: [${elapsed().toFixed(1)} s]`, e.text);
             emit(e);
           };
           const topic = await cluster.build({ settings, page: msg.page, emit: step, signal });
-          console.info('Wiki AI: topic built', { articles: topic.pages.length, themes: topic.facets.length });
+          console.info('Wiki AI: topic built', { seconds: elapsed(), articles: topic.pages.length, themes: topic.facets.length });
           emit({ type: 'topicBuilt', topic });
         } catch (e) {
           if (!signal.aborted) console.error('Wiki AI: topic build failed:', e);

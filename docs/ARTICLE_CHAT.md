@@ -168,7 +168,9 @@ The question named no other article, so this added no calls.
 
 **Result in this log:** it took 2.44s, finished normally (`finish: stop`) and wrote 2,634 characters. No tools were used.
 
-**Failures:** on a 503, 429 or 404, or if the stream is cut off before the server says it has finished, it switches to the fallback model for the rest of the answer. Without a fallback, a 503 or 429 waits and retries as the build does, and a cut-off reply is kept without any half-written citation.
+**Failures:** on a 503, 504, 429 or 404, if the model goes quiet, or if the stream is cut off or stopped by a filter, it switches to the fallback model for the rest of the answer. Without a fallback, a 503 or 429 waits and retries as the build does. A failed attempt shows in "Copy debug info" under `calls`, with its time and `failed` reason.
+
+**When a model counts as quiet:** Gemini with Fast answers on gets 60 seconds to start a reply and 45 seconds between chunks. Everything else, including local servers, Gemma and Gemini with thinking on, gets 240 and 90 seconds, because a model may have to load or think first.
 
 ### 9. Run any tools the model asks for (not used here)
 
@@ -194,6 +196,7 @@ Before you see anything, `grounding.check` compares the answer's details, such a
 | A detail isn't in the sources | Asks once to fix it (prompt below), and removes whatever still isn't backed | 1 |
 | That rewrite comes back empty or cut off | Keeps the earlier draft and its follow-ups, without the unbacked sentences | 0 |
 | Reply is only reasoning | Asks once more, directly, with thinking low or off and double the tokens | 1 |
+| Reply stopped early: dropped connection, token limit, a filter, or no `<followups>` block and no closing mark | Asks once more, with thinking low or off and double the tokens. If it stops early again, shows the longer reply with a note and requests no follow-up questions | 1 |
 | Reply says "the article doesn't say" without opening another one | Asks once to open the relevant article | 1 |
 | Check citations with the model is on (off by default) | A second model call reads each cited sentence next to its passage | 1 per check |
 | Fewer than 2 usable follow-up questions | Asks for follow-ups separately, with a 1,500-token limit | 1 |
@@ -705,4 +708,4 @@ The full World War I request and reply are in `test/fixtures/ww1-article-request
 
 - **The type never reaches the model:** it only chooses "Try asking" questions.
 - **The biggest download serves tables and images:** #3 is about 889,000 characters. It only happens once per article in 24 hours.
-- **The answer limit includes thinking:** Gemini counts thinking towards `max_tokens`, as the topic build's failures showed. The 1,200 limit was enough here, but it could cut answers short, so Gemini now gets at least 4,000. An answer that still runs out shows as `finish: 'length'` in the service worker's console. Unlike a topic plan, it isn't sent to the fallback model.
+- **The answer limit includes thinking:** Gemini counts thinking towards `max_tokens`, as the topic build's failures showed. The 1,200 limit was enough here, but it could cut answers short, so Gemini now gets at least 4,000. An answer that still runs out shows as `finish: 'length'` in the service worker's console and in "Copy debug info". Unlike a topic plan, it isn't sent to the fallback model, which has the same limit: it's asked for again with double the room.
