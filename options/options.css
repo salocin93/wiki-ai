@@ -81,6 +81,9 @@ button.ghost:hover { border-color: var(--accent); color: var(--accent); }
   border-radius: 10px; background: var(--bg); font-size: 13px;
 }
 .connection #connText { flex: 1; }
+.connection[hidden] { display: none; }
+.connection #embedText { flex: 1; }
+.connection.err #embedText { color: var(--danger); }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
 .dot.ok { background: var(--ok); }
 .dot.warn { background: var(--warn); }

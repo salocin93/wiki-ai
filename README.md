@@ -48,6 +48,8 @@ lib/tables.js           tables, infoboxes and images from the article HTML as te
 lib/sections.js         names of reference and "See also" sections in many languages
 lib/types.js            what kind of subject an article is (person, place, event …) and facts about it, from Wikidata
 lib/bm25.js             keyword search over chunks and over links (no embedding model needed)
+lib/embeddings.js       optional semantic search: passage embeddings (Gemini or a local model) fused with BM25;
+                        see docs/SEMANTIC_SEARCH.md
 lib/links.js            how central each linked article is (navigation boxes, infobox, introduction …)
 lib/agent.js            tool-calling loop, prompt budget, numbered sources
 lib/prompt.js           the agent's system prompt, one entry per rule
@@ -57,7 +59,7 @@ lib/cluster.js          builds a topic cluster: rank links → model groups them
 lib/topics.js           saved topics, search across a topic's articles, message API for the sidebar
 lib/conversations.js    saved chats, with size limits
 lib/storage.js          extension storage with one write at a time per key
-lib/cache.js            the 24-hour article cache (IndexedDB)
+lib/cache.js            the article cache (IndexedDB): 24 h for articles, 7 days for embedding vectors
 lib/settings.js         settings, endpoint rules, token estimates
 lib/text.js             helpers shared by the worker, panel and settings (escaping, citations, URLs)
 types/                  shared record types for the type check
@@ -79,6 +81,7 @@ With a topic active, the model gets the topic map (themes, articles, description
 |---|---|---|
 | Saved topics (titles, themes, short summaries, links between pages) | `chrome.storage.local` | ~20–60 KB per topic, kept until you delete it; 50 at most (least recently changed dropped, with their chats) |
 | Wikipedia article text and summaries | IndexedDB cache | expires after 24 h, capped at 300 entries (oldest removed first) |
+| Section embeddings (only with the experimental Semantic search setting) | IndexedDB cache | expires after 7 days, counted in the same 300 entries |
 | Saved chats (messages; cited sources trimmed to 700 characters, uncited ones without text) | `chrome.storage.local` | 12 per topic or article, 40 topics/articles at most, and storage kept under 8 MB (least recently used dropped) |
 | Search indexes | memory only | rebuilt as needed |
 
