@@ -287,6 +287,76 @@ test('embeddings: the settings test asks each model once', async () => {
   });
 });
 
+// ---------- The gate: when is an article worth embedding? ----------
+
+const GATE_TEXTS = [
+  'Kittens sleep on the warm windowsill every afternoon.',
+  'The treasury issued coins and the bank gave out a loan.',
+  'The army fought a long battle and soldiers died.',
+  'Rayleigh scattering of sunlight in the atmosphere gives the daytime its colour.',
+  'Windowsill plants need water and sunlight.',
+  'Kittens and cats drink water from a bowl.',
+];
+const gateOf = (e, q, settings = ONE) => embeddings.gate(e, q, e.index.search(q, 40), settings);
+
+test('bm25: confidence says how much of the question the best passage explains', () => {
+  const e = article(GATE_TEXTS);
+  const conf = (q) => e.index.confidence(q, e.index.search(q, 40));
+  assert.equal(conf('kittens sleep windowsill afternoon').coverage, 1);
+  assert.ok(conf('kittens treasury battle colour').coverage < 0.4, 'four words, spread over four passages');
+  assert.deepEqual([conf('heavens azure orbit').known, conf('heavens azure orbit').coverage], [0, 0], 'none of the words exist in the text');
+  assert.equal(conf('kittens windowsill').known, 2);
+  assert.equal(e.index.confidence('kittens', []).coverage, 0, 'no hits: nothing explains it');
+});
+
+test('gate: a question keyword search already answers does not start an embedding', async () => {
+  const e = article(GATE_TEXTS);
+  const g = await gateOf(e, 'kittens sleep windowsill afternoon');
+  assert.equal(g.use, false);
+  assert.match(g.reason, /keywords confident \(coverage 1\.00 ≥ 0\.7\)/);
+});
+
+test('gate: embeds when the question\'s words are spread out, or there are only a word or two to go on', async () => {
+  const e = article(GATE_TEXTS);
+  assert.match((await gateOf(e, 'kittens treasury battle colour')).reason, /keywords not confident \(coverage 0\.\d\d < 0\.7\)/);
+  assert.match((await gateOf(e, 'kittens windowsill')).reason, /short question \(2 matching words\)/);
+  const none = await gateOf(e, 'heavens azure orbit'); // no keyword hits at all: the case embeddings are for
+  assert.deepEqual([none.use, none.reason], [true, 'short question (0 matching words)']);
+});
+
+test('gate: vectors that are already stored are always used', async () => {
+  const e = article(GATE_TEXTS);
+  assert.equal((await gateOf(e, 'kittens sleep windowsill afternoon')).use, false);
+  await withServer(geminiServer, async () => {
+    await embeddings.search(e, 'kittens', ONE); // embeds the article
+  });
+  assert.deepEqual(await gateOf(e, 'kittens sleep windowsill afternoon'), { use: true, reason: 'vectors stored' });
+});
+
+test('gate: nothing to protect, switched off, a topic, or semantic search off', async () => {
+  const e = article(GATE_TEXTS);
+  const q = 'kittens sleep windowsill afternoon';
+  assert.equal((await gateOf(e, q, LOCAL)).reason, 'no quota to protect');
+  assert.equal((await gateOf(e, q, { ...AUTO, embedDailyLimit: -1 })).reason, 'no quota to protect', 'a paid key');
+  assert.equal((await gateOf(e, q, { ...ONE, embedGate: false })).reason, 'gate switched off');
+  assert.equal((await embeddings.gate({ chunks: e.chunks, entries: [e] }, q, [], ONE)).reason, 'topic');
+  assert.deepEqual(await gateOf(e, q, { ...ONE, semanticSearch: false }), { use: false, reason: 'semantic search is off' });
+});
+
+test('gate: the less of the day is left, the stricter it is', async () => {
+  const e = article(GATE_TEXTS);
+  const settings = { ...ONE, embedDailyLimit: 100 }; // 85 for new articles
+  const borderline = 'kittens sleep water sunlight windowsill'; // coverage 0.64
+  const weak = 'sleep sunlight water bowl afternoon'; // coverage 0.46
+  const decide = async (q) => (await gateOf(e, q, settings)).use;
+  assert.deepEqual([await decide(borderline), await decide(weak)], [true, true], 'plenty left: below 0.7');
+  await embeddings.spend('gemini-embedding-001', 40); // 53% of the new-article budget left
+  assert.deepEqual([await decide(borderline), await decide(weak)], [false, true], 'normal: below 0.6');
+  await embeddings.spend('gemini-embedding-001', 30); // 18% left
+  assert.deepEqual([await decide(borderline), await decide(weak)], [false, true], 'tight: below 0.5');
+  assert.match((await gateOf(e, weak, settings)).reason, /< 0\.5\)/);
+});
+
 // ---------- In the agent ----------
 
 const gemini = (settings) => ({ ...settings, baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'm' });
@@ -371,4 +441,28 @@ test('agent: not an error while sections are still being embedded or the day\'s 
   });
   assert.equal(steps2.filter((s) => /budget is used up/.test(s)).length, 1);
   assert.ok(!steps.concat(steps2).some((s) => /unavailable/.test(s)), 'neither is reported as a failure');
+});
+
+test('agent: an easy question costs no embedding request, and says why', async () => {
+  const e = article(GATE_TEXTS);
+  const r = runFor(e, ONE);
+  await withServer(geminiServer, async (calls) => {
+    const hits = await r.retrieve(e, 'kittens sleep windowsill afternoon', 3);
+    assert.equal(calls.length, 0);
+    assert.equal(hits[0].doc, e.chunks[0], 'the keyword result');
+    assert.ok(r.trace.notes.some((x) => /semantic gate: skip \(keywords confident \(coverage 1\.00 ≥ 0\.7\)\)/.test(x)));
+  });
+});
+
+test('agent: a question keyword search is unsure about embeds the article and says why', async () => {
+  const e = article(GATE_TEXTS);
+  const r = runFor(e, ONE);
+  await withServer(geminiServer, async (calls) => {
+    await r.retrieve(e, 'kittens treasury battle colour', 3);
+    assert.ok(calls.length > 0, 'the article and the question were embedded');
+    assert.ok(r.trace.notes.some((x) => /semantic gate: use \(keywords not confident \(coverage 0\.\d\d < 0\.7\)\)/.test(x)));
+    const embedded = calls.length;
+    await r.retrieve(e, 'kittens sleep windowsill afternoon', 3); // an easy one, but the vectors are stored now
+    assert.equal(calls.length, embedded + 1, 'only the question');
+  });
 });
