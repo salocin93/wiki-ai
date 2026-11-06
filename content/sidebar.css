@@ -100,6 +100,17 @@ header {
 .also-read a { color: var(--accent); text-decoration: none; }
 .also-read a:hover { text-decoration: underline; }
 .answer code { background: var(--bg-soft); padding: 1px 4px; border-radius: 4px; font-size: 12.5px; }
+/* Wide tables scroll sideways in here, not the panel. Words stay whole in a cell (".answer" would break them anywhere). */
+.table-wrap { overflow-x: auto; margin: 0 0 10px; border: 1px solid var(--border); border-radius: 8px; }
+.table-wrap:last-child { margin-bottom: 0; }
+.answer table { border-collapse: collapse; min-width: 100%; font-size: 12.5px; line-height: 1.4; overflow-wrap: normal; }
+.answer th, .answer td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: start; vertical-align: top; }
+.answer th + th, .answer td + td { border-inline-start: 1px solid var(--border); }
+.answer th { background: var(--bg-soft); font-weight: 600; }
+.answer tbody tr:last-child td { border-bottom: none; }
+.answer :is(th, td).al-left { text-align: left; }
+.answer :is(th, td).al-center { text-align: center; }
+.answer :is(th, td).al-right { text-align: right; }
 .answer .unsupported { text-decoration: underline dotted var(--danger); text-decoration-thickness: 1.5px; text-underline-offset: 3px; cursor: help; }
 .answer .unsupported.uncited { text-decoration-color: var(--muted); text-decoration-thickness: 1px; }
 .omitted { margin-top: 8px; font-size: 12px; color: var(--muted); }
