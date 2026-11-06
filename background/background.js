@@ -46,7 +46,7 @@ function wellFormed(msg) {
     case 'handoff:set': return Array.isArray(msg.list) && msg.list.length <= 10;
     case 'article:type': return /^Q\d{1,12}$/.test(msg.qid || '');
     case 'article:facts': return /^Q\d{1,12}$/.test(msg.qid || '') && LANG.test(msg.lang || '');
-    case 'ask': return str(msg.question, 5000) && Array.isArray(msg.history ?? []) && Array.isArray(msg.sources ?? []) && validPage(msg.page) && (msg.topicId == null || str(msg.topicId, 100));
+    case 'ask': return str(msg.question, 5000) && Array.isArray(msg.history ?? []) && Array.isArray(msg.sources ?? []) && validPage(msg.page) && (msg.topicId == null || str(msg.topicId, 100)) && (msg.rid == null || Number.isSafeInteger(msg.rid));
     case 'buildTopic': return validPage(msg.page);
     default: return true;
   }
@@ -127,14 +127,17 @@ chrome.runtime.onConnect.addListener((port) => {
     controller?.abort();
     controller = new AbortController();
     const signal = controller.signal;
+    // Every event of this run carries the request's id, so the panel can tell a late one (the follow-up questions,
+    // sent after `done`) from the next question's.
+    const send = (e) => emit(msg.rid == null ? e : { ...e, rid: msg.rid });
     await whileBusy(async () => {
       try {
         const settings = await loadSettings();
         const topic = msg.topicId ? await topics.get(msg.topicId) : null;
-        await agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit, signal });
+        await agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit: send, signal });
       } catch (e) {
-        if (signal.aborted) emit({ type: 'done', stopped: true });
-        else emit({ type: 'error', message: e.message || String(e) });
+        if (signal.aborted) send({ type: 'done', stopped: true });
+        else send({ type: 'error', message: e.message || String(e) });
       }
     });
   });

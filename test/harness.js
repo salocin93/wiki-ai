@@ -10,10 +10,18 @@ import { topics } from '../lib/topics.js';
 (async () => {
   const BASE = location.hostname.endsWith('wikipedia.org') ? 'http://localhost:8765/' : location.origin + '/';
   const settings = { ...appSettings.DEFAULTS, model: 'fake-model' };
+  let suggestionSets = 0;
   window.__wikiaiSettings = settings; // e.g. __wikiaiSettings.verifyCitations = true, to try the citation check
 
   // Fake model: searches the article, opens one linked article, then answers citing what it got.
   llm.chat = async ({ messages, tools, onUpdate }) => {
+    // The extra request for follow-up questions (made when the answer brought fewer than two): slow, to see the answer
+    // finish first and the questions arrive after it.
+    if (!tools && messages[0].content.startsWith('You suggest follow-up questions')) {
+      const set = ++suggestionSets; // numbered, to see which answer a set of suggestions ended up under
+      await new Promise((r) => setTimeout(r, 3000));
+      return { content: `- Set ${set}: what happened after this period?\n- Set ${set}: who else was involved in these events?\n- Set ${set}: where can I read more about the background?`, toolCalls: [], model: 'fake-model' };
+    }
     // Citation check: a second or so, then calls the first statement unsupported (it gets fixed, or left out).
     if (!tools && messages[0].content.startsWith('You check whether Wikipedia passages')) {
       await new Promise((r) => setTimeout(r, 1200));
@@ -66,7 +74,8 @@ import { topics } from '../lib/topics.js';
       await new Promise((r) => setTimeout(r, 15));
     }
     const q = question.trim().replace(/\?$/, '');
-    const raw = `${answer}\n\n<followups>\n- What came before: ${q}?\n- Which article explains the background of ${q}?\n- How does this compare with neighbouring dynasties?\n</followups>`;
+    // "late" in the question: no follow-up questions with the answer, so the slow extra request above is made.
+    const raw = /late/i.test(question) ? answer : `${answer}\n\n<followups>\n- What came before: ${q}?\n- Which article explains the background of ${q}?\n- How does this compare with neighbouring dynasties?\n</followups>`;
     return { content: answer, raw, toolCalls: [] };
   };
   const listeners = [];
@@ -103,10 +112,11 @@ import { topics } from '../lib/topics.js';
             }
             ctrl = new AbortController();
             const signal = ctrl.signal;
+            const send = (e) => emit({ ...e, rid: msg.rid }); // as the service worker does
             topics
               .get(msg.topicId)
-              .then((topic) => agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit, signal }))
-              .catch((e) => (signal.aborted ? emit({ type: 'done', stopped: true }) : emit({ type: 'error', message: e.message })));
+              .then((topic) => agent.run({ settings, page: msg.page, topic, question: msg.question, history: msg.history, sources: msg.sources, emit: send, signal }))
+              .catch((e) => (signal.aborted ? send({ type: 'done', stopped: true }) : send({ type: 'error', message: e.message })));
           },
         };
       },
