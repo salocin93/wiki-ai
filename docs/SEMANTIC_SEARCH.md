@@ -66,7 +66,9 @@ nothing, and the unit has to be small.
 ## When an article is embedded (the gate)
 
 Embedding an article costs about 35 requests, so a question only starts it when keyword search looks unsure (`embeddings.gate`,
-Settings › "Save quota"; on by default, applies to articles, not yet to topics). It decides from the keyword results, before any
+Settings › "Save quota"; on by default; it judges articles one by one, and a topic above 400 sections is skipped here, with the reason in
+the debug info, because embedding all of it is unaffordable; an article the question names inside a topic is still judged on its own).
+It decides from the keyword results, before any
 request is spent:
 
 1. **Vectors already stored** → use them (a question then costs 1 request).
