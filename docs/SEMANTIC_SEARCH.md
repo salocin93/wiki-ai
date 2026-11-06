@@ -12,7 +12,7 @@ ordered by how well they match the question's words (BM25), two per section, and
 an exact name or date is never lost. If no section is related enough, the keyword results are used as before.
 
 It replaces the direct BM25 calls in the agent (`Run.retrieve`): `search_article`, `search_linked_article`, `search_topic`, and
-the passages read ahead (`hints()`, `otherArticleHints()`). Link search (`find_linked_articles`, `recommend_reading`) and
+the passages read ahead (`hints()`, `otherArticleHints()`: 6 passages of this article, 4 when another is named, 5 of each named article, 8 for a topic; each bounded by the token budget, so no extra request; with semantic search that is about three sections, two passages each). Link search (`find_linked_articles`, `recommend_reading`) and
 building a topic (`lib/cluster.js`) stay keyword-only.
 
 Why sections, and why not fusion with BM25: measured with `test/semantic-eval.mjs` on 14 questions worded differently from the

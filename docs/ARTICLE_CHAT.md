@@ -141,8 +141,8 @@ See [the prompt](#the-prompt). It has about 5,600 characters of rules and 10,600
 
 | Part | How it's chosen | Calls |
 |---|---|---|
-| Articles your question names | Up to 3 linked articles named in the question, 3 passages each | Fetches each one unless cached |
-| Passages from this article | Top 3 keyword matches (2 if another article is named), without the intro | 0 |
+| Articles your question names | Up to 3 linked articles named in the question, 5 passages each (`NAMED_PASSAGES`) | Fetches each one unless cached |
+| Passages from this article | Top 6 matches (4 if another article is named), without the intro (`CURRENT_PASSAGES`); keyword matches, or the passages of the best sections with semantic search on | 0 |
 | Links that may help | Top 5 keyword matches, re-ranked by importance | 0 |
 
 The question named no other article, so this added no calls.
@@ -417,7 +417,7 @@ Rules:
 - For "what should I read next" questions, use recommend_reading (if its results are already below, use those). Pick 3 to 5 articles that cover different aspects, including at least one from the section the reader is looking at when that group is listed. For each, say in one or two sentences what the reader will learn there and how it connects to this article, citing its introduction and the sentence where this article mentions it. Don't mention link counts, article sizes or other ranking details. Prefer articles that are central to this subject over articles that are merely listed alongside it.
 - When the question is mainly about something other than "{{TITLE}}" (a relative, a place, an event, a concept), always read that subject's own article before answering, even if this article mentions it.
 - Reply with the answer only: don't write out your reasoning, plans or drafts.
-- Be concise: a few short paragraphs or a list. Use **bold** sparingly. Write formulas in LaTeX: $…$ inside a sentence, $$…$$ on a line of their own.
+- Cover what the passages say in as much detail as they support, in short paragraphs or a list. Use **bold** sparingly. Write formulas in LaTeX: $…$ inside a sentence, $$…$$ on a line of their own.
 - {{LANGUAGE_RULE}}
 - End every answer with 3 follow-up questions the reader could ask next, in exactly this format (they are shown as buttons, not text):
 <followups>

@@ -620,6 +620,50 @@ test('phrases: starter questions for a topic', async () => {
   assert.deepEqual(q({ kind: 'works', themes: ['A', 'B', 'C'] }), [overview, 'How do these works relate to each other?', 'How is “A” connected to “B”?', readFirst], 'the kind takes the third theme\'s place');
 });
 
+// What is read ahead before the model starts: more than the first two or three passages, but never more than the budget allows.
+function readAheadRun(extra = {}) {
+  const chunks = Array.from({ length: 12 }, (_, i) => ({ lang: 'en', page: 'T', section: `S${i}`, text: `Passage ${i} about coffee trade and plantations. `.repeat(6) }));
+  const asked = [];
+  const r = run({ question: 'what about the coffee trade', ...extra });
+  r.current = { page: { title: 'T' }, chunks, index: { search: (q, k) => (asked.push(k), chunks.slice(0, k).map((doc) => ({ doc, score: 1 }))) } };
+  r.page.visibleSection = null;
+  return { r, asked, chunks };
+}
+const shown = (text) => (text.match(/^\[\d+\] /gm) || []).length;
+
+test('agent: the read-ahead shows six passages of this article, four when another article is named', async () => {
+  const { r, asked } = readAheadRun();
+  const out = await r.hints();
+  assert.equal(asked[0], 6);
+  assert.equal(shown(out), 6);
+  const named = readAheadRun({ page: { lang: 'en', title: 'T', links: [{ title: 'Other article', anchors: [], context: '', sections: [] }] }, question: 'what about the Other article and coffee' });
+  named.r.mentionedArticles = () => ['Other article'];
+  const other = { page: { title: 'Other article' }, chunks: named.chunks.map((c) => ({ ...c, page: 'Other article' })) };
+  other.index = { search: (q, k) => (named.asked.push(k), other.chunks.slice(0, k).map((doc) => ({ doc, score: 1 }))) };
+  const real = wiki.getIndexedPage;
+  wiki.getIndexedPage = async () => other;
+  try {
+    const both = await named.r.hints();
+    assert.deepEqual(named.asked, [5, 4], '5 passages of the named article, 4 of this one');
+    assert.equal(shown(both), 5 + 4);
+  } finally {
+    wiki.getIndexedPage = real;
+  }
+});
+
+test('agent: the read-ahead is still cut to its token budget', async () => {
+  const { r } = readAheadRun({ settings: { contextTokens: 2000 } }); // 10% of 2,000 tokens for this article
+  const out = await r.hints();
+  assert.ok(shown(out) < 6, `only what fits: ${shown(out)}`);
+  assert.match(out, /more text omitted/);
+});
+
+test('prompt: asks for as much detail as the passages support, not for brevity', () => {
+  const rules = prompt.rules({ title: 'T', languageRule: 'x', followupLanguage: 'x', topic: false }).join('\n');
+  assert.match(rules, /Cover what the passages say in as much detail as they support/);
+  assert.ok(!/Be concise/.test(rules));
+});
+
 test('agent: a search for words like "best known" reads the introduction instead', async () => {
   const r = run();
   r.current = {
