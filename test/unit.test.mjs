@@ -443,6 +443,81 @@ test('agent: a rewrite that comes back empty or cut off keeps the draft, without
   }
 });
 
+// The follow-up questions need an extra request when the answer brings fewer than two. It must not hold the answer back.
+async function withLateFollowups(fn, { raw = 'Ada was born in 1815 [1].', suggest = '- First one?\n- Second one?\n- Third one?' } = {}) {
+  const passage = { lang: 'en', page: 'T', section: 'Introduction', text: 'Ada was born in 1815.' };
+  const realChat = llm.chat;
+  const realPage = wiki.getIndexedPage;
+  wiki.getIndexedPage = async () => ({ page: { title: 'T' }, chunks: [passage], index: { search: () => [] } });
+  let release;
+  const suggestGate = new Promise((resolve) => (release = resolve));
+  const asked = { answer: 0, suggest: 0 };
+  llm.chat = async ({ messages }) => {
+    if (/suggest follow-up questions/.test(messages[0].content)) {
+      asked.suggest++;
+      await suggestGate;
+      return { content: suggest, toolCalls: [], model: 'm' };
+    }
+    asked.answer++;
+    return { content: raw.replace(/<followups>[\s\S]*/, '').trim(), raw, reasoning: '', toolCalls: [], model: 'm' };
+  };
+  const events = [];
+  const ctrl = new AbortController();
+  const r = run({ settings: { maxSteps: 6, fallbackModel: '' }, signal: ctrl.signal });
+  r.emit = (e) => events.push(e);
+  r.page.visibleSection = null;
+  const doneEmitted = () => new Promise((resolve) => { const t = setInterval(() => events.some((e) => e.type === 'done') && (clearInterval(t), resolve(undefined)), 2); });
+  try {
+    await fn({ r, events, ctrl, release, asked, finished: r.run(), doneEmitted });
+  } finally {
+    release(); // a run still waiting for its suggestions must not outlive the test
+    llm.chat = realChat;
+    wiki.getIndexedPage = realPage;
+  }
+}
+
+test('agent: the answer is done before its follow-up questions, which arrive as their own event', async () => {
+  await withLateFollowups(async ({ events, release, asked, finished, doneEmitted }) => {
+    await doneEmitted();
+    const done = events.find((e) => e.type === 'done');
+    assert.equal(done.followupsPending, true);
+    assert.deepEqual(done.followups, [], 'none yet');
+    assert.equal(done.answer, 'Ada was born in 1815 [1].');
+    assert.ok(!events.some((e) => e.type === 'followups') && asked.suggest === 1, 'the suggestion request is still out');
+    release();
+    await finished;
+    const types = events.map((e) => e.type);
+    assert.ok(types.indexOf('done') < types.indexOf('followups'), 'done first');
+    const late = events.find((e) => e.type === 'followups');
+    assert.equal(late.followups.length, 3);
+    assert.deepEqual(late.trace.followups, late.followups, 'the debug info has them too');
+    assert.ok(late.trace.notes.some((n) => /Follow-up questions took \d+ ms after the answer was shown/.test(n)));
+    assert.ok(!events.some((e) => e.type === 'status' && /Suggesting/.test(e.text)), 'no longer a step before the answer');
+  });
+});
+
+test('agent: follow-up questions are dropped when the reader stopped or asked again meanwhile', async () => {
+  await withLateFollowups(async ({ events, ctrl, release, finished, doneEmitted }) => {
+    await doneEmitted();
+    ctrl.abort(); // a new question aborts the old run the same way
+    release();
+    await finished;
+    assert.ok(!events.some((e) => e.type === 'followups'));
+  });
+});
+
+test('agent: an answer that brings its own follow-up questions makes no extra request', async () => {
+  const raw = 'Ada was born in 1815 [1].\n<followups>\n- Who taught her mathematics as a child?\n- What was her partnership with Charles Babbage?\n- Which notes did she add to the translation?\n</followups>';
+  await withLateFollowups(async ({ events, asked, finished }) => {
+    await finished;
+    const done = events.find((e) => e.type === 'done');
+    assert.equal(done.followupsPending, false);
+    assert.equal(done.followups.length, 3);
+    assert.equal(asked.suggest, 0);
+    assert.ok(!events.some((e) => e.type === 'followups'));
+  }, { raw });
+});
+
 test('answer links: the first mention of an article, where it is safe', () => {
   const titles = (text, list, self = 'World War I') => answerLinks.find(text, list.map((title) => ({ title, lang: 'en' })), self).map((x) => x.title);
   assert.deepEqual(titles('The Treaty of Versailles came later. The Treaty of Versailles was signed.', ['Treaty of Versailles']), ['Treaty of Versailles'], 'once per answer');
