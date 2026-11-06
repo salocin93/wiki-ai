@@ -444,6 +444,62 @@ test('agent: a rewrite that comes back empty or cut off keeps the draft, without
   }
 });
 
+// Runs the loop on scripted replies. Returns the answer, the run, the last message sent and, per request, whether tools were on offer.
+async function scriptedRun(replies, settings) {
+  const passage = { lang: 'en', page: 'T', section: 'Introduction', text: 'Napoleon lost at Leipzig.' };
+  const realChat = llm.chat;
+  const realPage = wiki.getIndexedPage;
+  wiki.getIndexedPage = async () => ({ page: { title: 'T' }, chunks: [passage], index: { search: () => [] } });
+  const offered = [];
+  let lastAsked = '';
+  llm.chat = async ({ tools, messages }) => {
+    if (/suggest follow-up questions/.test(messages[0].content)) return { content: '', toolCalls: [], model: 'm' };
+    offered.push(!!tools?.length);
+    lastAsked = messages.at(-1).content;
+    return { content: '', reasoning: '', raw: '', toolCalls: [], model: 'm', ...replies[offered.length - 1] };
+  };
+  try {
+    const links = [{ title: 'Battle of Leipzig', anchors: [], context: 'The battle of Leipzig.', sections: ['Wars'] }];
+    const r = run({ settings: { fallbackModel: '', ...settings }, page: { lang: 'en', title: 'T', links, visibleSection: null }, question: 'Who won at Leipzig?' });
+    const answer = await r.run();
+    return { answer, offered, lastAsked, r };
+  } finally {
+    llm.chat = realChat;
+    wiki.getIndexedPage = realPage;
+  }
+}
+const lookup = (name, args) => ({ toolCalls: [{ id: name, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+const SEARCH = lookup('search_article', { query: 'Leipzig' });
+const BACKED = { content: 'Napoleon lost at Leipzig [1].' };
+
+// Told to use a tool with no tools on offer, Gemini replied with a tool call and no text: measured 8 times out of 8.
+test('agent: asked on the last research round to open another article, the model still has the tools to do it', async () => {
+  const deferral = { content: 'The article does not mention who won.' };
+  const opens = lookup('search_linked_article', { title: 'Battle of Leipzig', query: 'winner' });
+  const { answer, offered, lastAsked, r } = await scriptedRun([SEARCH, SEARCH, deferral, opens, BACKED], { maxSteps: 3 });
+  assert.deepEqual(offered, [true, true, true, true, false], 'one more round with tools, then the forced answer');
+  assert.match(lastAsked, /No more lookups are possible/, 'the forced answer says the tools are gone');
+  assert.equal(answer, BACKED.content);
+  assert.ok(r.trace.tools.some((t) => t.name === 'search_linked_article'));
+});
+
+test('agent: asked earlier to open another article, the number of research rounds stays the same', async () => {
+  const deferral = { content: 'The article does not mention who won.' };
+  const { offered } = await scriptedRun([deferral, SEARCH, SEARCH, BACKED], { maxSteps: 3 });
+  assert.deepEqual(offered, [true, true, true, false]);
+});
+
+test('agent: a forced answer that is only a tool call is asked for again, and the trace says what it was', async () => {
+  const { answer, offered, r } = await scriptedRun([SEARCH, SEARCH, BACKED], { maxSteps: 1 });
+  assert.deepEqual(offered, [true, false, false], 'tools stay off for the retry');
+  assert.equal(answer, BACKED.content);
+  assert.ok(r.trace.notes.some((n) => /only a tool call/.test(n)), r.trace.notes.join(' | '));
+  assert.ok(!r.trace.notes.some((n) => /all reasoning/.test(n)));
+
+  const thinking = await scriptedRun([SEARCH, { content: '', reasoning: 'Hmm.' }, BACKED], { maxSteps: 1 });
+  assert.ok(thinking.r.trace.notes.some((n) => /all reasoning/.test(n)), 'a reply of only reasoning is still called that');
+});
+
 // The follow-up questions need an extra request when the answer brings fewer than two. It must not hold the answer back.
 async function withLateFollowups(fn, { raw = 'Ada was born in 1815 [1].', suggest = '- First one?\n- Second one?\n- Third one?' } = {}) {
   const passage = { lang: 'en', page: 'T', section: 'Introduction', text: 'Ada was born in 1815.' };
