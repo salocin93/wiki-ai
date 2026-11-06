@@ -63,6 +63,35 @@ nothing, and the unit has to be small.
   server says, up to 8 tries; a question never retries.
 - When the day's budget is used up, answers use keywords until it resets ("Today's embedding budget is used up").
 
+## When an article is embedded (the gate)
+
+Embedding an article costs about 35 requests, so a question only starts it when keyword search looks unsure (`embeddings.gate`,
+Settings › "Save quota"; on by default, applies to articles, not yet to topics). It decides from the keyword results, before any
+request is spent:
+
+1. **Vectors already stored** → use them (a question then costs 1 request).
+2. **No quota to protect** (a local model, or a paid key with the daily limit at -1) or the gate switched off → use.
+3. **Short question**: two or fewer of its words exist in the article ("what do cats eat?") → use, because coverage can't judge it.
+   This includes a question with no keyword match at all, which is what embeddings are best at.
+4. Otherwise compare the **keyword coverage** of the top passage (`BM25.confidence`: the share of the question's words, weighted by
+   how rare each is, that the best passage contains) with a threshold: below it, embed; at or above it, answer from keywords.
+   The threshold is 0.7 while more than 70% of the day's new-article budget is left, 0.6 normally, 0.5 below 30%.
+
+The debug info records each decision (`semantic gate: skip (keywords confident (coverage 0.76 ≥ 0.6))`).
+
+Measured with `test/semantic-eval.mjs` (39 hard questions, keyword search only) and on real questions:
+- Coverage of the top passage separates the questions keywords got wrong from those they got right (AUC 0.82); top score and gap to
+  the second passage 0.67; coverage of the top three passages 0.73; whether the question's words exist in the article, heading
+  matches and number of sections are close to chance.
+- "Embed below 0.6" sent 21 of the 39 hard questions to embeddings and caught 9 of the 11 keyword misses; below 0.7 caught all 11
+  at 27 of 39. These are deliberately hard questions, so real traffic should embed much less.
+- On 11 real questions from the first sessions, it would have embedded 2 and skipped 9; 8 of those were fine, and one ("what do
+  cats eat?", coverage 1.0 because both words appear in a hunting passage) missed the *Diet* section, which rule 3 now covers.
+
+Limits: the thresholds come from 39 questions on 6 articles and may be overfitted. A question with no keyword match on an
+off-topic subject also embeds the article once ("what is the capital of Australia"), since it can't be told from a pure
+paraphrase; the vectors are reused by later questions. `--no-gate` in the eval compares with embedding on every question.
+
 ## Storage
 
 - Vectors are unit-length `Float32Array`s, one per section (about 3 KB each, ~100 KB per article), stored per batch in the article
@@ -91,6 +120,7 @@ nothing, and the unit has to be small.
 npm test                                   # includes test/embeddings.test.mjs (fake server, no network)
 node test/semantic-eval.mjs --bm25-only    # the keyword baseline, no key
 GEMINI_API_KEY=… node test/semantic-eval.mjs --only=Cat,Coffee --unrelated
+GEMINI_API_KEY=… node test/semantic-eval.mjs --only=Cat,Coffee --no-gate   # embed on every question, to compare with the gate
 EMBED_URL=http://localhost:11434/v1 EMBED_MODEL=nomic-embed-text \
   EMBED_DOC_PREFIX='search_document: ' EMBED_QUERY_PREFIX='search_query: ' node test/semantic-eval.mjs --only=Cat,Coffee
 GEMINI_API_KEY=… node test/embed-quota-check.mjs gemini-embedding-2 --probe=7   # does the limit count calls or texts?
