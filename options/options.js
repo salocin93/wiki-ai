@@ -60,6 +60,7 @@ function collect() {
   out.semanticSearch = $('semanticSearch').checked;
   for (const id of EMBED_FIELDS) out[id] = id.endsWith('Prefix') ? $(id).value : $(id).value.trim();
   out.embedMinScore = Number($('embedMinScore').value) || 0;
+  out.embedDailyLimit = Math.round(Number($('embedDailyLimit').value)) || 0;
   out.answerLanguage = $('answerLanguage').value;
   out.answerLanguageChosen = settings.answerLanguageChosen;
   for (const id of NUMBER_FIELDS) out[id] = Number($(id).value) || 0;
@@ -269,7 +270,7 @@ async function allowEndpoint(baseUrl) {
     return false;
   }
 }
-for (const id of ['disableThinking', 'verifyCitations', 'semanticSearch', 'embedMinScore', ...NUMBER_FIELDS, ...EMBED_FIELDS]) $(id).addEventListener('change', scheduleSave);
+for (const id of ['disableThinking', 'verifyCitations', 'semanticSearch', 'embedMinScore', 'embedDailyLimit', ...NUMBER_FIELDS, ...EMBED_FIELDS]) $(id).addEventListener('change', scheduleSave);
 
 // One real embedding request with the current fields, so a wrong address, model or key shows up here and not as a
 // silent fall-back to keyword search later.
@@ -281,20 +282,36 @@ function embedState(state, text) {
 }
 $('testEmbed').addEventListener('click', async () => {
   const s = collect();
-  const cfg = embeddings.config({ ...s, semanticSearch: true });
-  if (!cfg) return embedState('err', 'Enter a model name: only Gemini has a default.');
-  const problem = appSettings.endpointProblem(cfg.baseUrl);
+  const cfgs = embeddings.configs({ ...s, semanticSearch: true });
+  if (!cfgs.length) return embedState('err', 'Enter a model name: only Gemini has a default.');
+  const problem = appSettings.endpointProblem(cfgs[0].baseUrl);
   if (problem) return embedState('err', problem);
-  if (!cfg.gemini && !(await allowEndpoint(cfg.baseUrl))) return embedState('err', `Wiki AI isn't allowed to reach ${cfg.baseUrl}. Click Test again and choose Allow.`);
-  embedState('warn', `Asking ${cfg.model}…`);
+  if (!cfgs[0].gemini && !(await allowEndpoint(cfgs[0].baseUrl))) return embedState('err', `Wiki AI isn't allowed to reach ${cfgs[0].baseUrl}. Click Test again and choose Allow.`);
+  embedState('warn', `Asking ${cfgs.map((c) => c.model).join(' and ')}…`);
   const started = performance.now();
   try {
-    const r = await embeddings.test(s);
-    embedState('ok', `${r.model} works: ${r.dims}-dimension vectors, ${Math.round(performance.now() - started)} ms.`);
+    const results = await embeddings.test(s);
+    const failed = results.some((r) => r.error);
+    embedState(failed ? 'err' : 'ok', results.map((r) => (r.error ? `${r.model} failed: ${r.error}` : `${r.model} works (${r.dims}-dimension vectors)`)).join(' · ') + (failed ? '' : `, ${Math.round(performance.now() - started)} ms.`));
   } catch (e) {
     embedState('err', `Failed: ${e.message}`);
   }
+  showEmbedUsage();
 });
+
+// Requests used today, per model.
+async function showEmbedUsage() {
+  const s = collect();
+  if (!s.semanticSearch) return;
+  try {
+    const rows = await embeddings.usage(s);
+    if (!rows.length) return;
+    $('embedUsage').hidden = false;
+    $('embedUsage').textContent = `Today (resets midnight Pacific): ${rows.map((r) => `${r.model} ${r.used}${Number.isFinite(r.limit) ? ` of ${r.limit}` : ''}`).join(' · ')}`;
+  } catch {
+    // the usage line is a nicety
+  }
+}
 $('answerLanguage').addEventListener('change', () => {
   settings.answerLanguageChosen = true; // from now on this choice wins over the default
   scheduleSave();
@@ -346,6 +363,8 @@ $('clearAll').addEventListener('click', async () => {
   $('semanticSearch').checked = settings.semanticSearch;
   for (const id of EMBED_FIELDS) $(id).value = settings[id] || '';
   $('embedMinScore').value = settings.embedMinScore || '';
+  $('embedDailyLimit').value = settings.embedDailyLimit || '';
+  showEmbedUsage();
   $('answerLanguage').innerHTML = languageOptions();
   $('answerLanguage').value = settings.answerLanguage || 'browser';
   for (const id of NUMBER_FIELDS) $(id).value = settings[id];

@@ -34,6 +34,7 @@ Wiki AI has no analytics, no tracking and no advertising. It doesn't sell or sha
 | Your chats: questions, answers, and the Wikipedia passages they cite | Until you delete them. At most 12 chats per article or topic and 40 articles or topics; the oldest are removed first |
 | Topic clusters you build: article titles, themes, short descriptions | Until you delete them. At most 50; the oldest are removed first |
 | Copies of Wikipedia articles, to avoid downloading them again | 24 hours |
+| Embedding vectors of article sections, if you switch on Semantic search (numbers, not text) | 7 days |
 | Whether the sidebar is open in a tab | Until you close the tab |
 
 This data stays on your device. Wiki AI doesn't sync it to other devices.

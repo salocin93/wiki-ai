@@ -106,6 +106,7 @@ interface Settings {
   embedDocPrefix: string;
   embedQueryPrefix: string;
   embedMinScore: number;
+  embedDailyLimit: number;
   answerLanguage: string;
   answerLanguageChosen: boolean;
 }

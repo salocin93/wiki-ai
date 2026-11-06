@@ -104,8 +104,9 @@
       <label class="switch">
         <input type="checkbox" id="semanticSearch">
         <span class="track" aria-hidden="true"></span>
-        <span><strong>Find passages by meaning</strong><span class="hint block">Passages are turned into embeddings and compared with your question, then combined with the keyword search. It finds a passage that says the same thing in other words, or in another language. Article text is sent to the embedding service, so with Gemini it uses part of your free quota (one request per article, then kept for a day). If the service fails, answers fall back to keyword search.</span></span>
+        <span><strong>Find sections by meaning</strong><span class="hint block">Each section of an article is turned into an embedding and compared with your question, so a section that says the same thing in other words (or another language) is found. Keyword search then picks the passages inside it. Section text is sent to the embedding service. Gemini's free quota is 1,000 texts a day for each of its two embedding models, about 35 per article, so roughly 50 articles a day; vectors are kept for a week. When the quota is used up, the service fails or the sections aren't ready yet, answers use keyword search.</span></span>
       </label>
+      <p class="hint" id="embedUsage" hidden></p>
       <div class="connection" id="embedStatus" hidden>
         <span class="dot" id="embedDot"></span>
         <span id="embedText"></span>
@@ -120,8 +121,8 @@
         <div class="two">
           <div class="field">
             <label for="embedModel">Model</label>
-            <input type="text" id="embedModel" spellcheck="false" placeholder="gemini-embedding-001">
-            <p class="hint">Required for a local server, e.g. <code>nomic-embed-text</code>.</p>
+            <input type="text" id="embedModel" spellcheck="false" placeholder="Both Gemini models">
+            <p class="hint">Empty on Gemini uses <code>gemini-embedding-001</code> and <code>gemini-embedding-2</code>, each with its own free quota. A local server needs a model name, e.g. <code>nomic-embed-text</code>.</p>
           </div>
           <div class="field">
             <label for="embedApiKey">API key</label>
@@ -140,9 +141,14 @@
           </div>
         </div>
         <div class="field">
+          <label for="embedDailyLimit">Daily limit per model</label>
+          <input type="number" id="embedDailyLimit" min="-1" step="100" placeholder="0">
+          <p class="hint">Embedding requests per model per day (they reset at midnight Pacific time). 0 picks the default: 1,000 on Gemini's free tier, none elsewhere. -1 turns the limit off, e.g. for a paid key. New articles stop at 85% of it, so questions about embedded articles keep working.</p>
+        </div>
+        <div class="field">
           <label for="embedMinScore">Minimum similarity</label>
           <input type="number" id="embedMinScore" min="-1" max="1" step="0.01" placeholder="0">
-          <p class="hint">Passages scoring below this (cosine, 0 to 1) are ignored, so an unrelated question adds nothing. 0 picks the default: 0.55 for <code>gemini-embedding-001</code>, none for other models. -1 turns it off. To calibrate a model, run <code>test/semantic-check.mjs</code> with a related and an unrelated question and set it between the two top scores.</p>
+          <p class="hint">Passages scoring below this (cosine, 0 to 1) are ignored, so an unrelated question adds nothing. 0 picks the default: 0.55 for <code>gemini-embedding-001</code>, none for other models (not yet measured for them). -1 turns it off. To calibrate a model, run <code>test/semantic-check.mjs</code> with a related and an unrelated question and set it between the two top scores.</p>
         </div>
         <p class="hint">Some models (nomic, e5, bge) expect these prefixes and rank worse without them. Changing the model or the passage prefix embeds articles again.</p>
         <button type="button" class="ghost" id="testEmbed">Test embedding model</button>

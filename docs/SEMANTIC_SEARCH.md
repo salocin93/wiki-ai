@@ -1,63 +1,97 @@
 # Semantic search (experimental)
 
-Off by default. Settings › Semantic search turns it on. Retrieval stays BM25 when it's off, and also when anything about
-embeddings fails, so it can only add passages, never break an answer.
+Off by default. Settings › Semantic search turns it on. Without it, retrieval is BM25 keyword search. With it, retrieval is led
+by meaning, and falls back to keywords whenever embeddings aren't available, so it can only add good passages, never break an
+answer.
 
 ## What it does
 
-Each ~160-word passage is embedded (`lib/embeddings.js`). A question is embedded too, and passages are ranked by cosine
-similarity. That list is fused with the BM25 list by reciprocal rank fusion, so a passage both lists like rises most and
-neither score has to be calibrated against the other. This finds a passage that says the same thing in other words
-("why have harbours survived underwater" → the passage on seawater and lime), and one in another language.
+An article is embedded **one text per section**: the section's heading path plus its first ~90 words (`lib/embeddings.js`).
+A question is embedded too, and the sections are ranked by cosine similarity. The passages inside the best sections are then
+ordered by how well they match the question's words (BM25), two per section, and the best keyword match anywhere is kept so
+an exact name or date is never lost. If no section is related enough, the keyword results are used as before.
 
-It replaces the four `index.search` calls the agent made (`Run.retrieve`): `search_article`, `search_linked_article`,
-`search_topic`, and the passages read ahead in `hints()` / `otherArticleHints()`. Link search stays keyword-only.
+It replaces the direct BM25 calls in the agent (`Run.retrieve`): `search_article`, `search_linked_article`, `search_topic`, and
+the passages read ahead (`hints()`, `otherArticleHints()`). Link search (`find_linked_articles`, `recommend_reading`) and
+building a topic (`lib/cluster.js`) stay keyword-only.
+
+Why sections, and why not fusion with BM25: measured with `test/semantic-eval.mjs` on 14 questions worded differently from the
+article (Cat, Coffee), the right section was among the top 3 passages for
+
+| | first | top 3 | texts embedded |
+|---|---|---|---|
+| keywords | 5 | 9 | none |
+| every passage embedded | 12 | 13 | 148 |
+| one text per section | 13 | 13 | 74 |
+| keywords + passages, fused | 8 | 12 | 148 |
+| only top-level sections | 9 | 11 | 23 |
+
+Re-measured through the real retrieval path (`semantic` in `test/semantic-eval.mjs`): right section first for 13 of 14, in the
+top 3 for 13 of 14, against 5 and 9 for keywords. Sections lose nothing against passages at half the cost, and fusing with keyword ranks made first place worse. The sample is
+small and the questions were chosen to avoid the article's words, which favors embeddings; keywords still win on names and dates,
+which is why the best keyword match is kept. Re-run the script after changes.
 
 ## Backends
 
 | | Gemini (default) | Any OpenAI-compatible server |
 |---|---|---|
-| Endpoint | `models/gemini-embedding-001:batchEmbedContents` | `<address>/embeddings` |
-| Used when | the embedding address is empty and the chat provider is Gemini, or the address is Gemini's | any other address |
-| Details | task types `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY`, 768 dimensions, 100 passages per request | model name required, 32 passages per request, optional passage/question prefixes (nomic, e5, bge want them) |
+| Models | `gemini-embedding-001` and `gemini-embedding-2`, **each with its own free quota** | the one named in the settings |
+| Endpoint | `models/<model>:batchEmbedContents` | `<address>/embeddings` |
+| Task | 001: `taskType` field. 2: part of the text (`title: … \| text: …` for sections, `task: search result \| query: …` for questions) | optional prefixes in the settings (nomic, e5, bge want them) |
+| Details | 768 dimensions, 50 sections per request | 32 per request |
 | Key | the chat key (only to the same host) | none, or its own key; the chat key is never sent to another address |
 
-Local server: Settings › Semantic search › Embedding model, enter e.g. `http://localhost:11434/v1` and `nomic-embed-text`
-(prefixes `search_document: ` and `search_query: `), click **Test embedding model**. The browser asks once to let Wiki AI
-reach the address.
+Local server: Settings › Semantic search › Embedding model, enter e.g. `http://localhost:11434/v1` and `nomic-embed-text` (prefixes
+`search_document: ` and `search_query: `), click **Test embedding model**. The browser asks once to let Wiki AI reach the address.
 
-## Storage and cost
+## Free-tier limits and the budget
 
-- Vectors are unit-length `Float32Array`s, one per passage, stored in the article cache (`emb:` keys: model, article,
-  revision and content size). 768 dimensions is about 3 KB per passage, so about 300 KB for a long article. They expire
-  with the article after 24 h and count towards its 300-entry cap.
-- Changing the model or the passage prefix changes the key, so articles are embedded again; stale vectors are never
-  mixed in. A size mismatch between stored vectors and a question is an error, not a wrong ranking.
-- One request per article (a long one is two) on first use, then free. Questions are one small request each (the last 50
-  are remembered in memory).
-- After a failure (no key, rate limit, server off) the passages aren't retried for a minute, and the answer uses keyword
-  search. The panel shows "Semantic search unavailable" once per answer; "Copy debug info" has the reason.
+Gemini's free tier allows, per embedding model, 100 requests a minute, 1,000 a day and 30,000 tokens a minute, and **every text
+counts as a request**: a batch of 100 uses the whole minute (seen in the 429s: `embed_content_free_tier_requests`, limit 100;
+confirmed for `gemini-embedding-2` on the usage dashboard by sending one call of 7 texts, which counted 7). So batching saves
+nothing, and the unit has to be small.
+
+- An article costs about 35 requests (sections), a question about it 1. With two models that is about 50 questioned articles a day,
+  plus follow-ups. Every article the model opens counts, and a topic costs its articles' sections (refused above 400 sections).
+- The count is kept per model and day (quotas reset at midnight Pacific time) in `chrome.storage.local`. Settings › Daily limit
+  changes it (0 = 1,000 on Gemini, none elsewhere; -1 = none, e.g. a paid key).
+- **New articles stop at 85% of a model's day**, so questions about embedded articles still get their 1-request question
+  embedding. An article keeps the model it was embedded with (vectors of different models can't be compared); a new article
+  goes to the model with more budget left.
+- Embedding runs as a background job in batches saved as they finish. A question waits up to 6 s, then uses keyword search
+  ("Semantic index still building in the background"); later questions find it ready. On a 429 the job waits as long as the
+  server says, up to 8 tries; a question never retries.
+- When the day's budget is used up, answers use keywords until it resets ("Today's embedding budget is used up").
+
+## Storage
+
+- Vectors are unit-length `Float32Array`s, one per section (about 3 KB each, ~100 KB per article), stored per batch in the article
+  cache under `emb:` keys (model, article, revision and content size). They live **7 days**, not 24 hours, because they cost quota
+  to make; an edited article has a new key. They share the cache's 300-entry cap with articles.
+- Changing the model or the passage prefix changes the key, so articles are embedded again; stale vectors are never mixed in.
+- An article with more than 60 sections is embedded by top-level section instead (its subsections' names are in the text), so
+  the biggest articles don't use up the day.
+- After a failure (no key, wrong model, server off) nothing is retried for a minute and answers use keywords. The panel says
+  "Semantic search unavailable" once per answer; "Copy debug info" has the reason.
 
 ## Limits of this prototype
 
-- **Topics:** a topic is embedded only if it has at most 600 passages (`TOPIC_CHUNK_CAP`); bigger ones use keywords.
-  A 50-article topic usually exceeds that. Options: embed lazily in the background, or rerank BM25's top 150 only.
-- **Cut-off:** a passage must score at least `minScore`, or it's ignored. Measured on `gemini-embedding-001` with the
-  Roman concrete article: unrelated questions ("who won the 2018 World Cup", "how do I bake sourdough bread") top out at
-  0.47–0.50; related ones start at 0.58 (a vague "who wrote about the recipe") and reach 0.75. The default is 0.55 for
-  that model and none for any other, since scales differ per model: calibrate with `test/semantic-check.mjs` and set
-  Settings › Minimum similarity. `MARGIN` (0.12 below the best hit) is a second, looser filter; scores of one question
-  sit within a few hundredths, so it removes little.
-- Passages are embedded as `Title — Section\ntext`; tables are included when the article was read with them.
-- The article cache is shared, so vectors take entries from the 300-entry cap. A separate store would avoid that.
+- The similarity floor comes from `test/semantic-eval.mjs --unrelated` on Coffee (001) and Cat (2): unrelated questions topped
+  out at 0.53 and 0.56, right sections started at 0.61 and 0.69, so the floors are 0.55 for `gemini-embedding-001` and 0.62 for
+  `gemini-embedding-2` (provisional: one article each). Other models have none until one is set in the settings. Scores differ
+  between articles, so recheck on a few more before trusting the margins.
+- Semantic ranking still misses loosely worded questions: "which places do people sit in to drink it together" scored the
+  Coffeehouses section below another one (13 of 14 right on the test questions, not 14).
+- The article cache is shared, so vectors take entries from the 300-entry cap.
+- The within-section pick is keyword-based; the sections' later passages aren't embedded.
 
 ## Trying it
 
 ```bash
 npm test                                   # includes test/embeddings.test.mjs (fake server, no network)
-GEMINI_API_KEY=… node test/semantic-check.mjs "Roman concrete"
+node test/semantic-eval.mjs --bm25-only    # the keyword baseline, no key
+GEMINI_API_KEY=… node test/semantic-eval.mjs --only=Cat,Coffee --unrelated
 EMBED_URL=http://localhost:11434/v1 EMBED_MODEL=nomic-embed-text \
-  EMBED_DOC_PREFIX='search_document: ' EMBED_QUERY_PREFIX='search_query: ' node test/semantic-check.mjs
+  EMBED_DOC_PREFIX='search_document: ' EMBED_QUERY_PREFIX='search_query: ' node test/semantic-eval.mjs --only=Cat,Coffee
+GEMINI_API_KEY=… node test/embed-quota-check.mjs gemini-embedding-2 --probe=7   # does the limit count calls or texts?
 ```
-
-The script prints, per question, the top passages from keywords, from meaning and fused, with scores.
