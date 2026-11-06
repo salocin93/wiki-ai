@@ -100,6 +100,7 @@ interface Settings {
   disableThinking: boolean;
   verifyCitations: boolean;
   semanticSearch: boolean;
+  embedGate: boolean;
   embedBaseUrl: string;
   embedModel: string;
   embedApiKey: string;
