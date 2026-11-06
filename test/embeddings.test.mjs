@@ -341,7 +341,7 @@ test('gate: nothing to protect, switched off, a topic, or semantic search off', 
   assert.equal((await gateOf(e, q, LOCAL)).reason, 'no quota to protect');
   assert.equal((await gateOf(e, q, { ...AUTO, embedDailyLimit: -1 })).reason, 'no quota to protect', 'a paid key');
   assert.equal((await gateOf(e, q, { ...ONE, embedGate: false })).reason, 'gate switched off');
-  assert.equal((await embeddings.gate({ chunks: e.chunks, entries: [e] }, q, [], ONE)).reason, 'topic');
+  assert.equal((await embeddings.gate({ chunks: e.chunks, entries: [e] }, q, [], ONE)).reason, 'topic', 'a small topic');
   assert.deepEqual(await gateOf(e, q, { ...ONE, semanticSearch: false }), { use: false, reason: 'semantic search is off' });
 });
 
@@ -467,4 +467,33 @@ test('agent: a question keyword search is unsure about embeds the article and sa
     await r.retrieve(e, 'kittens sleep windowsill afternoon', 3); // an easy one, but the vectors are stored now
     assert.equal(calls.length, embedded + 1, 'only the question');
   });
+});
+
+// A topic above the cap is skipped by the gate itself, with the reason; an article inside it is still judged on its own.
+function bigTopic() {
+  const articles = Array.from({ length: 7 }, () => article(Array.from({ length: 60 }, (_, i) => `Passage ${i} about the sky and the atmosphere.`)));
+  const chunks = articles.flatMap((a) => a.chunks);
+  return { chunks, entries: articles, index: new bm25.BM25(chunks, (c) => `${c.section} ${c.text}`) };
+}
+
+test('gate: a topic above the section cap is skipped with its size as the reason', async () => {
+  const g = await embeddings.gate(bigTopic(), 'sky', [], ONE);
+  assert.equal(g.use, false);
+  assert.equal(g.soft, 'size');
+  assert.match(g.reason, /^topic too large \(420 sections, over 400\)$/);
+});
+
+test('agent: a topic that is too large says so once, costs no request, and uses keywords', async () => {
+  const topic = bigTopic();
+  const steps = [];
+  const r = runFor(article(['x']), ONE, steps);
+  await withServer(geminiServer, async (calls) => {
+    const hits = await r.retrieve(topic, 'sky atmosphere', 5);
+    await r.retrieve(topic, 'sky', 5);
+    assert.equal(calls.length, 0);
+    assert.ok(hits.length > 0 && hits[0].doc.text.includes('sky'), 'the keyword results');
+  });
+  assert.equal(steps.filter((s) => /whole topic is too large to search by meaning/.test(s)).length, 1);
+  assert.ok(r.trace.notes.some((x) => /semantic gate: skip \(topic too large \(420 sections, over 400\)\)/.test(x)));
+  assert.ok(!r.trace.notes.some((x) => /semantic gate: use \(topic\)/.test(x)), 'no longer "use" followed by a failure');
 });
