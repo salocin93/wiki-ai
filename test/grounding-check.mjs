@@ -10,6 +10,7 @@ Iraq feared that Shia unrest would spread under Sunni rule. Iran and the United 
 const exempt = 'Whom did Ada Lovelace marry? Ada Lovelace';
 const flags = (answer, opts = {}) => G.check(answer, seen, { exempt, ...opts }).map((f) => f.missing.join(','));
 
+let failed = 0;
 const cases = [
   // [answer, expected flags (the missing details of each flagged sentence), name]
   ['Ada Lovelace married **William King** in 1835 [1]. He became Earl of Lovelace in 1838 [1].', [], 'supported'],
@@ -38,6 +39,7 @@ const cases = [
   ['The Austro-Prussian war followed [2].', ['Austro,Prussian'], 'invented hyphenated name'],
   ['Iranian and Iraqi forces fought; 37 American sailors died on a ship with French missiles [2].', ['37'], 'nationality words'],
   ['Later, Brazilian ships joined in [2].', ['Brazilian'], 'nationality with no country in the sources'],
+  ['She met the Constructor [1].', ['Constructor'], 'a word that is also an object property'],
 ];
 
 // With the passages by number, each sentence is checked against the passages it cites: "kind missing,details".
@@ -53,7 +55,42 @@ cases.push(
   ['She married William King in 1835 [9].', ['uncited'], 'a number that is no source counts as none', { passages }],
 );
 
-let failed = 0;
+// Tables: real rows and passages from Napoleonic Wars answers (gemini-3.5-flash-lite).
+const war = new Map([
+  [2, 'Napoleonic Wars › Introduction\nThe war climaxed in French victories at Ulm and at Austerlitz. Britain obtained hegemony over the seas after victories including Trafalgar.'],
+  [4, 'Napoleonic Wars › Introduction\nThe Sixth Coalition defeated Napoleon at Leipzig in October 1813. The allies then invaded France: the Russians, Austrians, and Prussians.'],
+  [12, 'Napoleonic Wars › Use of military intelligence\nThe Battle of Waterloo, Battle of Leipzig, Battle of Salamanca, and the Battle of Vitoria were dictated by the use of intelligence.'],
+  [17, 'Napoleonic Wars › Invasion of Russia\nThe Grande Armée won the major Battle of Smolensk. Part of the French Army was stopped.'],
+  [3, 'Napoleonic Wars › Introduction\nAustria won the Battle of Aspern–Essling.'],
+]);
+const warSeen = [...war.values()].join('\n');
+const warFlags = (answer) => G.check(answer, warSeen, { exempt: 'Give me a table of the major battles and their winners.\nNapoleonic Wars', passages: war }).filter((f) => f.kind !== 'uncited').map((f) => f.missing.join(','));
+const table = (...rows) => ['| Battle | Winner / Outcome |', '| :--- | :--- |', ...rows].join('\n');
+const tableCases = [
+  [table('| Battle of Ulm | France [2] |'), [], '"Battle" of a battle name and France for French: not claims'],
+  [table('| Battle of Trafalgar | United Kingdom [2] |'), [], 'United Kingdom where the passage says Britain'],
+  [table('| **Battle of Aspern–Essling** | Austrian Empire [3] |'), [], '"Empire" after a name that is there'],
+  [table('| Battle of Smolensk | French Empire [17] |'), [], 'France-word and Empire'],
+  [table('| Battle of Salamanca | Coalition / Allies (implied by intelligence context) [12] |'), ['Coalition,Allies'], 'a winner the passage does not name still fails'],
+  [table('| Battle of Leipzig | Sixth Coalition (Austria, Prussia, Sweden, and Russia) [4] |'), ['Sweden'], 'a country the passage does not name still fails'],
+  [table('| Battle of Hastings | Normans [4] |'), ['Hastings,Normans'], 'a battle that is nowhere still fails'],
+  [table('| Battle of Ulm | United States [2] |'), ['United,States'], 'the wrong country still fails'],
+  [table('| Trafalgar | Germany [2] |'), ['Germany'], 'a country no passage names still fails'],
+  ['| Battle | Invented Column |\n| --- | --- |\n| Ulm | French [2] |', [], 'header words are not claims'],
+  ['Battle | Invented Column', ['Invented,Column'], 'a line with a pipe is no table'],
+  ['An Invented Claim\n| --- |', ['Invented,Claim'], 'prose above a stray rule is still checked'],
+];
+for (const [answer, expected, name] of tableCases) {
+  const got = warFlags(answer);
+  try {
+    assert.deepEqual(got, expected);
+    console.log(`ok   table: ${name}`);
+  } catch {
+    failed++;
+    console.log(`FAIL table: ${name}: got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`);
+  }
+}
+
 for (const [answer, expected, name, opts] of cases) {
   if (opts?.passages) {
     const got = kinds(answer);

@@ -195,6 +195,8 @@ Before you see anything, `grounding.check` compares the answer's details, such a
 |---|---|---|
 | A detail isn't in the sources, or not in the passages cited | Looks for it in the passages shown and the articles already loaded, then asks once to fix it, sending up to 6 passages it found (prompt below). Removes whatever still isn't backed | 1 |
 | That rewrite comes back empty or cut off | Keeps the earlier draft and its follow-ups, without the unbacked sentences | 0 |
+| A table answer | Each row counts as one sentence and the header row isn't checked. A removed row takes its line with it, and a table with no rows left goes whole | 0 |
+| The rewrite opens by announcing a check of the sources (English only) | Drops that first paragraph | 0 |
 | Reply is only reasoning | Asks once more, directly, with thinking low or off and double the tokens | 1 |
 | Reply stopped early: dropped connection, token limit, a filter, or no `<followups>` block and no closing mark | Asks once more, with thinking low or off and double the tokens. If it stops early again, shows the longer reply with a note and requests no follow-up questions | 1 |
 | Reply says "the article doesn't say" without opening another one | Asks once to open the relevant article | 1 |
