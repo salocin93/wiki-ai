@@ -236,6 +236,102 @@ test('grounding: sentences are left out cleanly, empty list items too', () => {
   );
 });
 
+// The answer about the Napoleonic Wars that lost four statements, with the real passages they were checked against.
+const NAPOLEONIC = {
+  intro: "Napoleonic Wars › Introduction\nThe Sixth Coalition defeated Napoleon at Leipzig in October 1813. Coalition troops captured Paris in March 1814, forced Napoleon to abdicate in April, exiled him to the island of Elba. The allies formed the Seventh Coalition, which defeated him at Waterloo in June 1815 and exiled him to the British island of Saint Helena.",
+  peninsular: 'Napoleonic Wars › Peninsular War, 1808–1814\nThe Peninsular campaigns witnessed 60 major battles and 30 major sieges, more than any other of the Napoleonic conflicts.',
+  russia: "French invasion of Russia › Introduction\nIn the fierce Battle of Borodino, located 110 kilometres (70 mi) west of Moscow, Napoleon failed to destroy the Russian army, while Kutuzov was unable to halt the French advance.",
+  spain: 'Peninsular War › Introduction\nWellington defeated the French at the Battle of Salamanca in 1812.',
+  sixth: '**War of the Sixth Coalition:** This conflict included the Battle of Leipzig, where the coalition defeated Napoleon, and the Battle of Paris (1814), which led to his abdication [1].',
+  seventh: "**War of the Seventh Coalition:** The Battle of Waterloo was the final engagement of this conflict, leading to Napoleon's ultimate defeat and exile [1].",
+  borodino: '**French invasion of Russia:** This campaign, which served as a decisive turning point in the Napoleonic Wars, included the Battle of Borodino [1].',
+  salamanca: 'Additionally, the Peninsular War, a major conflict, is noted for witnessing 60 major battles and 30 major sieges, including the Battle of Salamanca [2].',
+  exempt: 'How is “Major Conflicts” connected to “Decisive Battles”?\nNapoleonic Wars',
+  // Ordinary words of the sentences. With too few of them in the sources, the check takes the answer for a translation and compares numbers only.
+  words: 'Other passages: this conflict included the final engagement, leading to ultimate defeat and exile; where the coalition led to his abdication; this campaign, which served as a decisive turning point; additionally, a major conflict is noted for witnessing battles and sieges, including others; first.',
+};
+
+test('grounding: "Battle" in a name is no detail, the place in it still is', () => {
+  const N = NAPOLEONIC;
+  const seen = [N.intro, N.peninsular, N.russia, N.spain, N.words].join('\n');
+  const flags = (answer, cited) => grounding.check(answer, seen, { exempt: N.exempt, passages: new Map(cited.map((t, i) => [i + 1, t])) }).filter((f) => f.kind !== 'uncited');
+  assert.deepEqual(flags(N.sixth, [N.intro]), [], 'the passage says Leipzig and Paris, not "battle"');
+  assert.deepEqual(flags(N.seventh, [N.intro]), []);
+  assert.deepEqual(flags(N.borodino, [N.intro]).map((f) => f.missing), [['Borodino']], 'really not in the passage it cites');
+  assert.deepEqual(flags(N.salamanca, [N.intro, N.peninsular]).map((f) => f.missing), [['Salamanca']]);
+  assert.deepEqual(flags(N.borodino, [N.russia]), [], 'cited to the passage that says it');
+  assert.deepEqual(flags(N.salamanca.replace('[2]', '[1][2]'), [N.spain, N.peninsular]), [], 'each part in one of its two passages');
+  assert.deepEqual(flags('The Battle of Hastings came first [1].', [N.intro]).map((f) => [f.kind, f.missing]), [['missing', ['Hastings']]], 'from memory: left out');
+  assert.deepEqual(flags('The Battle of Waterloo came first [1].', [N.spain]).map((f) => [f.kind, f.missing]), [['miscited', ['Waterloo']]]);
+  assert.deepEqual(flags('The Treaty of Paris followed [1].', ['S\nCoalition troops captured Paris.']).map((f) => f.missing), [['Treaty']], 'another leading word stays a detail');
+});
+
+test('grounding: finds the passages with what a sentence lacks', () => {
+  const N = NAPOLEONIC;
+  const pool = [N.intro, N.peninsular, N.russia, N.spain].map((text) => ({ text }));
+  const find = (text, missing, limit) => grounding.backing({ text, missing }, pool, limit).map((p) => p.text);
+  assert.deepEqual(find(N.borodino, ['Borodino']), [N.russia]);
+  assert.deepEqual(find(N.salamanca, ['Salamanca']), [N.spain]);
+  assert.deepEqual(find('At Leipzig and Salamanca [1].', ['Leipzig', 'Salamanca']), [N.intro, N.spain], 'two passages between them');
+  assert.deepEqual(find('At Leipzig and Salamanca [1].', ['Leipzig', 'Salamanca'], 1), [N.intro]);
+  assert.deepEqual(find('It came in 1812 [1].', ['1812']), [N.spain], 'numbers too');
+  assert.deepEqual(find('The Battle of Hastings came first [1].', ['Hastings']), [], 'a detail in no passage finds nothing');
+  assert.deepEqual(grounding.backing({ text: 'Hastings came first [1].', missing: ['Hastings'] }, [{ text: 'They hastily retreated.' }]), [], 'whole words: "hastily" is no Hastings');
+});
+
+test('agent: a flagged detail is looked up in the topic, read by the model, and only then kept', async () => {
+  const N = NAPOLEONIC;
+  const chunk = (t) => {
+    const [head, text] = t.split('\n');
+    const [page, section] = head.split(' › ');
+    return { lang: 'en', page, section, text };
+  };
+  const shown = chunk(`${N.intro} ${N.words}`);
+  const elsewhere = chunk(N.russia);
+  const realChat = llm.chat;
+  const realPage = wiki.getIndexedPage;
+  const realCorpus = topics.corpus;
+  wiki.getIndexedPage = async () => ({ page: { title: 'Napoleonic Wars' }, chunks: [shown], index: { search: () => [] } });
+  topics.corpus = async () => ({ chunks: [shown, elsewhere], index: { search: () => [] }, byPage: new Map(), facetOf: new Map(), entries: [] });
+  const answerWith = async (rewrite) => {
+    const asked = [];
+    llm.chat = async ({ messages }) => {
+      if (messages[0].content.startsWith('You suggest follow-up')) return { content: '', toolCalls: [] };
+      asked.push(messages.at(-1).content);
+      const content = asked.length === 1 ? N.borodino : rewrite(asked.at(-1));
+      return { reasoning: '', raw: '', toolCalls: [], model: 'm', content };
+    };
+    const r = run({ settings: { maxSteps: 6, fallbackModel: '' }, topic: { name: 'T', lang: 'en', pages: [], facets: [], edges: [] } });
+    r.emit = () => {};
+    r.page.visibleSection = null;
+    r.cite(shown, true);
+    return { answer: await r.run(), request: asked[1], sources: r.sources };
+  };
+  try {
+    const kept = await answerWith((request) => N.borodino.replace('[1]', request.match(/\[\d+\](?= French invasion of Russia)/)?.[0] || '[1]'));
+    assert.match(kept.request, /Passages that mention these details:[\s\S]*fierce Battle of Borodino/, 'the passage goes with the request');
+    assert.match(kept.request, /topic map only lists articles/);
+    assert.ok(kept.sources.some((s) => s.page === 'French invasion of Russia'), 'and can be cited');
+    assert.match(kept.answer, /included the Battle of Borodino \[\d+\]\./, 'cited to it, the statement stays');
+    const stubborn = await answerWith(() => N.borodino);
+    assert.doesNotMatch(stubborn.answer, /Borodino/, 'still cited to a passage without it: left out');
+  } finally {
+    llm.chat = realChat;
+    wiki.getIndexedPage = realPage;
+    topics.corpus = realCorpus;
+  }
+});
+
+test('agent: a detail from memory finds no passage, and the rewrite request says so by showing none', () => {
+  const r = run({});
+  r.trace = { notes: [] };
+  r.current = { page: { title: 'T' }, chunks: [{ lang: 'en', page: 'T', section: 'S', text: 'Ada was born in 1815.' }] };
+  const request = r.groundingRequest([{ text: 'The Battle of Hastings came first [1].', why: 'Not found', missing: ['Hastings'] }]);
+  assert.doesNotMatch(request, /Passages that mention/);
+  assert.match(request, /Keep the sentences not listed here as they are/);
+  assert.doesNotMatch(request, /topic map/, 'no topic, no word about its map');
+});
+
 test('settings: the citation check is off unless turned on', () => {
   assert.equal(appSettings.DEFAULTS.verifyCitations, false);
 });
