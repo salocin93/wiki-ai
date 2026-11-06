@@ -13,6 +13,7 @@ import { answerLinks } from '../content/answerlinks.js';
 import { markdown } from '../content/markdown.js';
 import { prompt } from '../lib/prompt.js';
 import { sectionNames } from '../lib/sections.js';
+import { textUtil } from '../lib/text.js';
 import { topics } from '../lib/topics.js';
 import { wiki } from '../lib/wiki.js';
 
@@ -516,6 +517,26 @@ test('agent: an answer that brings its own follow-up questions makes no extra re
     assert.equal(asked.suggest, 0);
     assert.ok(!events.some((e) => e.type === 'followups'));
   }, { raw });
+});
+
+test('titles: a bracket that names which one of several is told from one that describes', () => {
+  for (const t of ['Imperial Guard (Russia)', 'Treaty of Paris (1763)', 'Georgia (U.S. state)', 'Napoleon (1955 film)']) assert.ok(textUtil.qualifiedByName(t), t);
+  for (const t of ['Mercury (planet)', 'Theo van Gogh (art dealer)', 'Ada Lovelace (microarchitecture)', 'Treaty of Versailles', 'Imperial Guard']) assert.ok(!textUtil.qualifiedByName(t), t);
+});
+
+test('answer links: a title bracketed with a name or year is not linked by its bare name', () => {
+  const titles = (text, list) => answerLinks.find(text, list.map((title) => ({ title, lang: 'en' })), 'Napoleonic Wars').map((x) => x.title);
+  assert.deepEqual(titles('Neither article mentions the French Imperial Guard or its history.', ['Imperial Guard (Russia)']), [], '"French Imperial Guard" is not the Russian one');
+  assert.deepEqual(titles('Napoleon sent the Imperial Guard forward.', ['Imperial Guard (Russia)']), [], 'nor is the bare name');
+  assert.deepEqual(titles('Near Treaty of Paris today.', ['Treaty of Paris (1763)']), [], 'a year bracket either, even as the only candidate');
+  assert.deepEqual(titles('It orbits close to Mercury today.', ['Mercury (planet)']), ['Mercury (planet)'], 'a descriptive bracket still links by the bare name');
+});
+
+test('agent: a question using a bare name does not read ahead the article bracketed with a name', () => {
+  const r = run({ page: { lang: 'en', title: 'Napoleonic Wars', links: [{ title: 'Imperial Guard (Russia)', anchors: [], context: '', sections: [] }, { title: 'Theo van Gogh (art dealer)', anchors: [], context: '', sections: [] }] } });
+  r.current = { page: { title: 'Napoleonic Wars' } };
+  assert.deepEqual(r.mentionedArticles('I meant the Imperial Guard (Napoleon I), not the Russian'), []);
+  assert.deepEqual(r.mentionedArticles('What did Theo van Gogh do for him?'), ['Theo van Gogh (art dealer)'], 'a descriptive bracket is still known by the bare name');
 });
 
 test('answer links: the first mention of an article, where it is safe', () => {
