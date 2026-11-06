@@ -141,7 +141,7 @@ See [the prompt](#the-prompt). It has about 5,600 characters of rules and 10,600
 
 | Part | How it's chosen | Calls |
 |---|---|---|
-| Articles your question names | Up to 3 linked articles named in the question, 5 passages each (`NAMED_PASSAGES`) | Fetches each one unless cached |
+| Articles your question names | Up to 3 linked articles named in the question, 5 passages each (`NAMED_PASSAGES`). A title bracketed with a name or year ("Imperial Guard (Russia)") isn't known by its bare name, only by its link text | Fetches each one unless cached |
 | Passages from this article | Top 6 matches (4 if another article is named), without the intro (`CURRENT_PASSAGES`); keyword matches, or the passages of the best sections with semantic search on | 0 |
 | Links that may help | Top 5 keyword matches, re-ranked by importance | 0 |
 
@@ -206,7 +206,7 @@ The `<followups>` block is removed from the answer and shown as buttons, minus q
 
 Two things help you open the articles themselves, with no requests or model calls:
 
-- **In-text links:** `answerLinks.find` links the first mention of an article, up to 8 per answer, by matching titles in the finished answer. Candidates are the articles the page links to (without dates, lists and reference plumbing), those read during the chat, and the topic's. Single words only link mid-sentence and away from other capitalised words. Headings, code and citations are skipped. The links are saved with the answer, and old answers have none.
+- **In-text links:** `answerLinks.find` links the first mention of an article, up to 8 per answer, by matching titles in the finished answer. Candidates are the articles the page links to (without dates, lists and reference plumbing), those read during the chat, and the topic's. Single words only link mid-sentence and away from other capitalised words. A title bracketed with a name or a year ("Imperial Guard (Russia)", "Treaty of Paris (1763)") is never linked by its bare name, because other articles share it ("the French Imperial Guard" must not link to the Russian one); a descriptive bracket ("Mercury (planet)") still is. Headings, code and citations are skipped. The links are saved with the answer, and old answers have none.
 - **Also read:** up to 5 articles the model was shown passages from for this answer, but didn't cite.
 
 This answer cited passages 1, 4, 6, 13, 14 and 15.

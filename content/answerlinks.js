@@ -1,5 +1,7 @@
 // Links in answers, as Wikipedia has them: the first mention of an article becomes a link to it. Found by matching
 // titles in the finished answer, so the model can't invent a link, and no request is spent.
+import { textUtil } from '../lib/text.js';
+
 const MAX_LINKS = 8;
 
 const short = (title) => title.replace(/ \([^)]*\)$/, '');
@@ -25,6 +27,8 @@ function named(candidates, self) {
   for (const c of candidates) {
     const name = short(c.title);
     if (name === short(self || '')) continue;
+    // "Imperial Guard (Russia)" is not what "the French Imperial Guard" or "the Imperial Guard" means: bare names of such titles are shared.
+    if (name !== c.title && textUtil.qualifiedByName(c.title)) continue;
     // "Bolsonaro" on Jair Bolsonaro's article is the article's own subject, not the family-name page it links to.
     if (!/\s/.test(name) && short(self || '').split(/\s+/).includes(name)) continue;
     if (!groups.has(name)) groups.set(name, []);
