@@ -174,7 +174,7 @@ The question named no other article, so this added no calls.
 
 ### 9. Run any tools the model asks for (not used here)
 
-If the model calls tools, each one runs, its result is added to the messages, and the model is asked again. **Each round is another model call.** On the Gemini API there are at most 3 research rounds, 6 elsewhere. After that the app sends "Answer now using the sources you have, with citations." and removes the tools.
+If the model calls tools, each one runs, its result is added to the messages, and the model is asked again. **Each round is another model call.** On the Gemini API there are at most 3 research rounds, 6 elsewhere. After that the app sends "No more lookups are possible: the tools are gone. Answer now using the sources you have, with citations." and removes the tools. A reply on the last round that defers to another article gets one more round, since it is told to open that article.
 
 | Tool | What it does | Network calls |
 |---|---|---|
@@ -541,10 +541,10 @@ Don't send me to another article: open it yourself. Use search_linked_article on
 **Out of research rounds:**
 
 ```
-Answer now using the sources you have, with citations.
+No more lookups are possible: the tools are gone. Answer now using the sources you have, with citations.
 ```
 
-**Reply was only reasoning:**
+**Reply was only reasoning, or only a tool call with no tools on offer:**
 
 ```
 Write your answer to my question now, directly, without planning or deliberating.
