@@ -403,7 +403,7 @@ import { topicMap } from './map.js';
     if (state.view !== 'topic') return;
     const t = state.topic;
     const parts = [];
-    if (state.topicError) parts.push(`<div class="${state.topicNote ? 'topic-note' : 'topic-error'}">${esc(state.topicError)}</div>`);
+    if (state.topicError) parts.push(`<div class="${state.topicNote ? 'topic-note' : 'topic-error'}">${esc(state.topicError)}${state.topicNote ? '' : settingsLink(state.topicError)}</div>`);
     if (!t && !state.building) {
       parts.push(`
         <div class="topic-head empty">
@@ -653,7 +653,18 @@ import { topicMap } from './map.js';
     applyPendingChat();
   }
 
+  // A chat with no answer yet (every question failed or was stopped before any text) isn't kept in History.
+  function hasAnswer(c) {
+    return c.messages.some((m) => m.role === 'assistant' && m.content);
+  }
+
+  // Settings are where a missing or rejected key gets fixed.
+  function settingsLink(error) {
+    return /API key|401|403/.test(error) ? ' <button class="link open-settings">Open settings</button>' : '';
+  }
+
   function saveConv(c) {
+    if (!hasAnswer(c)) return;
     send({ type: 'conv:save', scope: c.scope || state.scope, conv: c }).then(
       () => state.saveError && ((state.saveError = null), renderChatBar()),
       (e) => {
@@ -820,7 +831,7 @@ import { topicMap } from './map.js';
     };
 
     const here = state.convs
-      .filter((c) => c.messages.length && match(c))
+      .filter((c) => (hasAnswer(c) || state.request === c) && match(c))
       .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
       .map((c) => row({ id: c.id, title: c.title, questions: c.messages.filter((m) => m.role === 'user').length, updatedAt: c.updatedAt || c.createdAt, here: c.id === conv()?.id, running: state.request === c, scope: null }));
     for (const c of state.allChats) {
@@ -1206,7 +1217,7 @@ import { topicMap } from './map.js';
     const status = m.pending && !m.content ? `<div class="status"><span class="dot"></span>${textUtil.esc(m.status || 'Thinking')}${m.words ? ` <span class="words">· ${m.words} words</span>` : ''}</div>` : '';
     const debug = traces.has(m) ? ` · <button class="link copy-debug" data-i="${i}" title="Copy what happened while answering (no API key), for a bug report">Copy debug info</button>` : '';
     const error = m.error
-      ? `<div class="error">${textUtil.esc(m.error)}${/API key|401|403/.test(m.error) ? ' <button class="link open-settings">Open settings</button>' : ''}${m.model ? '' : debug}</div>`
+      ? `<div class="error">${textUtil.esc(m.error)}${settingsLink(m.error)}${m.model ? '' : debug}</div>`
       : '';
     const sources = cited.length ? renderSourceGroups(cited, labelOf) : '';
     const alsoRead = !m.pending && m.alsoRead?.length
