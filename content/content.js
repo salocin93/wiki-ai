@@ -50,7 +50,6 @@ import { topicMap } from './map.js';
   const root = host.attachShadow({ mode: 'closed' });
   globalThis.__wikiaiRoot = root;
   root.innerHTML = `
-    <link rel="stylesheet" href="${chrome.runtime.getURL('vendor/katex/katex.min.css')}">
     <link rel="stylesheet" href="${chrome.runtime.getURL('content/sidebar.css')}">
     <button class="launcher" title="Ask about this article (Alt+Shift+W)" aria-label="Open Wiki AI">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
@@ -58,9 +57,9 @@ import { topicMap } from './map.js';
     <button class="ask-selection" hidden>Ask about this</button>
     <aside class="panel" aria-label="Wiki AI" hidden>
       <header>
-        <img class="mark" src="${chrome.runtime.getURL('icons/mascot.svg')}" alt="">
+        <img class="mark" src="${chrome.runtime.getURL('icons/mascot.svg')}" width="36" height="36" alt="">
         <div class="titles">
-          <img class="name" src="${chrome.runtime.getURL('icons/wordmark.svg')}" alt="Wiki AI">
+          <img class="name" src="${chrome.runtime.getURL('icons/wordmark.svg')}" width="76" height="20" alt="Wiki AI">
           <div class="sub"></div>
         </div>
         <button class="icon new" title="New chat" aria-label="New chat">
@@ -107,6 +106,14 @@ import { topicMap } from './map.js';
       </form>
       </section>
     </aside>`;
+  // Hidden until its stylesheet has loaded: drawn without it, the panel and the round button appear unstyled at the
+  // end of the page and then jump into place, a layout shift on every article.
+  host.style.display = 'none';
+  const stylesReady = new Promise((resolve) => {
+    const link = root.querySelector('link[rel="stylesheet"]');
+    link.addEventListener('load', resolve, { once: true });
+    link.addEventListener('error', resolve, { once: true }); // shown unstyled rather than not at all
+  }).then(() => host.style.removeProperty('display'));
   document.documentElement.appendChild(host);
 
   // Highlight style has to live in the page, outside the shadow root.
@@ -127,20 +134,28 @@ import { topicMap } from './map.js';
     /* Wide data tables scroll on their own instead of running under the panel. */
     html.wikiai-open .mw-parser-output table.wikitable { display: block; max-width: 100%; overflow-x: auto; }`;
   document.head.appendChild(pageStyle);
-  // KaTeX (270 kB) loads the first time an answer has a formula, not on every article; the messages are then drawn
-  // again. Its fonts: Chrome ignores @font-face inside a shadow root, so the page loads them too (its rules only
-  // touch .katex elements, which Wikipedia doesn't use). If it can't load, formulas stay as text.
+  // KaTeX (270 kB, and 25 kB of CSS) loads the first time an answer has a formula, not on every article; the
+  // messages are then drawn again. Its stylesheet goes in the panel, and in the page too for the fonts: Chrome
+  // ignores @font-face inside a shadow root (the page's copy only touches .katex elements, which Wikipedia doesn't
+  // use). If it can't load, formulas stay as text.
   let katexLoading = null;
+  const katexCss = (parent) =>
+    new Promise((resolve) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = chrome.runtime.getURL('vendor/katex/katex.min.css');
+      link.addEventListener('load', resolve, { once: true });
+      link.addEventListener('error', resolve, { once: true });
+      parent.appendChild(link);
+    });
   markdown.onMath = () => {
     katexLoading ||= import(chrome.runtime.getURL('vendor/katex/katex.min.js'))
       .then(() => {
         if (!globalThis.katex) throw new Error('KaTeX did not load');
-        const fonts = document.createElement('link');
-        fonts.rel = 'stylesheet';
-        fonts.href = chrome.runtime.getURL('vendor/katex/katex.min.css');
-        document.head.appendChild(fonts);
-        render(true);
+        katexCss(document.head);
+        return katexCss(root);
       })
+      .then(() => render(true))
       .catch((e) => console.warn('Wiki AI: formulas stay as text', e));
   };
 
@@ -1673,7 +1688,7 @@ import { topicMap } from './map.js';
     setOpen(true, { focus: false });
   };
   const sessionOpen = recall('open');
-  takeHandoff().then((h) => {
+  Promise.all([takeHandoff(), stylesReady]).then(([h]) => {
     if (h?.chat) {
       state.pendingChat = h.chat;
       if (h.scope?.startsWith('page:')) state.useTopicHere = false;
