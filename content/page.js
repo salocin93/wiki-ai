@@ -64,10 +64,68 @@ export const pageDom = (() => {
     return h ? Number(h.tagName[1]) : 0;
   };
 
+  // Where each heading is relative to the lines readingIndex() goes by (the top of the window, the sticky header's
+  // edge, a third of the way down), kept up to date by IntersectionObservers. Reading positions directly forces the
+  // browser to lay out the page first, about 35 ms on a long article right after the panel opens; the observers are
+  // told where a heading is after each layout, for free. Each observer's area starts at its line and runs far
+  // below and to the sides, so a heading is told about whenever its top crosses the line; its side is read from the
+  // position reported with the change. The area has to belong to whatever scrolls the page: with the panel open
+  // that's <body> (sidebar's page style), and measured against the window, <body> would hide every heading off
+  // screen, so a jump from one to another (a link in the contents) would go unreported. So there's a set of
+  // observers for each, and the one in use is picked by the page's style, which needs no layout.
+  const LINES = { window: '0px', header: `-${sectionNames.TOP_OF_WINDOW_PX}px`, third: '-35%' };
+  const scrollers = typeof IntersectionObserver === 'function' ? { window: null, body: document.body } : {};
+  const above = { window: new Map(), body: new Map() }; // per scroller: heading → {window, header, third}, true above it
+  const observers = { window: [], body: [] };
+  for (const [scroller, root] of Object.entries(scrollers)) {
+    for (const [line, top] of Object.entries(LINES)) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            const sides = above[scroller].get(e.target) || {};
+            sides[line] = e.boundingClientRect.top < e.rootBounds.top;
+            above[scroller].set(e.target, sides);
+          }
+        },
+        { root, rootMargin: `${top} 100000px 100000px 100000px`, threshold: [0, 1] }
+      );
+      for (const h of headings()) observer.observe(h);
+      observers[scroller].push(observer);
+    }
+  }
+  const pageScroller = () => (getComputedStyle(document.documentElement).overflowY !== 'visible' && getComputedStyle(document.body).overflowY !== 'visible' ? 'body' : 'window');
+  // While <body> scrolls, the window's set misses jumps (see above), so on going back to it, start it again (each
+  // heading's first report comes with the next frame) and measure until then. Nothing hides headings from <body>'s
+  // set, so it stays right whether or not <body> scrolls.
+  let lastScroller = '';
+  function sidesNow() {
+    const scroller = pageScroller();
+    if (scroller === 'window' && lastScroller === 'body') {
+      above[scroller].clear();
+      for (const o of observers[scroller]) {
+        o.disconnect();
+        for (const h of headings()) o.observe(h);
+      }
+    }
+    lastScroller = scroller;
+    return above[scroller];
+  }
+
   // The heading of the section the reader is looking at, and those before it, or an empty list in the introduction.
   function headingsUpToReading() {
     const all = headings();
-    return all.slice(0, sectionNames.readingIndex(all.map((h) => h.getBoundingClientRect().top), window.innerHeight) + 1);
+    const sides = scrollers.window === undefined ? new Map() : sidesNow();
+    const known = all.every((h) => Object.keys(sides.get(h) || {}).length === 3);
+    // Until every heading has been seen by all three observers (just after the page loads), measure.
+    const tops = known
+      ? all.map((h) => {
+          const s = sides.get(h);
+          // Stand-in positions on a window 1000 px tall, one per side of each line, for readingIndex()'s rule. Below
+          // the third goes first: in a window under ~340 px that line is above the header's.
+          return s.window ? -1 : !s.third ? Infinity : s.header ? 0 : 200;
+        })
+      : all.map((h) => h.getBoundingClientRect().top);
+    return all.slice(0, sectionNames.readingIndex(tops, known ? 1000 : window.innerHeight) + 1);
   }
 
   // The article's own running text: no navigation boxes, fact boxes, tables or back matter.
