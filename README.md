@@ -18,10 +18,11 @@ A browser extension (Chrome and Safari) that adds a chat sidebar to Wikipedia ar
 - **Ask about selected text.** Select a passage and click **Ask about this**, or right-click → *Ask Wiki AI about "…"*.
 - **Knows where you are.** The section you're scrolled to is added to the prompt, so "explain this section" works.
 - **Topic clusters across many articles.** Click **Build topic cluster** and the model groups the article's most relevant links into themes, e.g. *House of Oldenburg* → Danish line, cadet branches, origins. The cluster stays active as you browse its articles, and questions then search every article in it at once. You can add or remove articles, and switch between saved topics.
-- **Three sections: Chat, Topic, Map.**
-  - **Chat**: the conversation, with **History** (saved chats for this topic or article: reopen or delete) and **New chat**.
+- **Four tabs: Chat, Topic, Map, History.**
+  - **Chat**: the conversation, with **New chat**.
   - **Topic**: the active topic's themes and articles, saved topics, and **Questions to explore**.
   - **Map**: the topic's articles as a graph (colored by theme, sized by connections, lines for links). Click an article for its summary, open it, or ask about it; enlarge the map over the article area.
+  - **History**: saved chats for this topic or article and from everywhere else, with a search box: reopen or delete them.
 - **Questions that fit the article.** The questions an empty chat suggests depend on what the article is about: a person (what they're known for, turning points, legacy), an event (causes, consequences), a work (how it came about, how it was received), a place, a group, a religion or a concept. The type comes from Wikidata. A question is only offered if the article has a section that can answer it. Topics get questions that fit their kind, such as "How did these people influence each other?" for a topic about people.
 - **Suggested next questions.** Every answer ends with three follow-up questions. Clicking one continues the same chat; asked ones get a ✓. Suggestions you haven't asked yet, from all your chats, collect under **Topic › Questions to explore**, and asking one there continues the chat it came from.
 - **Checked against its sources.** Before an answer is shown, each claim is compared with the passages it cites. Claims they don't back are sent back to the model once to fix, and whatever still isn't backed is left out; a collapsed note under the answer lists what was left out and why. With **Check citations with the model** on (Settings › Answers), the model itself judges each cited sentence, which is more accurate but adds a request per answer (its timing is in the answer's debug info).

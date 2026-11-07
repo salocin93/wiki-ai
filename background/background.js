@@ -56,7 +56,8 @@ const validPage = (page) => !!page && LANG.test(page.lang) && str(page.title, 50
 async function loadSettings() {
   const settings = await appSettings.load();
   if (!settings.apiKey && settings.provider !== 'custom') { // a server of your own may not need one
-    throw new Error('No API key set. Open the Wiki AI settings, pick where answers come from and paste the key.');
+    // Expected until the key is pasted: the panel shows it, so it isn't logged as a failure.
+    throw Object.assign(new Error('No API key set. Open the Wiki AI settings, pick where answers come from and paste the key.'), { expected: true });
   }
   return settings;
 }
@@ -119,7 +120,7 @@ chrome.runtime.onConnect.addListener((port) => {
           console.info('Wiki AI: topic built', { seconds: elapsed(), articles: topic.pages.length, themes: topic.facets.length });
           emit({ type: 'topicBuilt', topic });
         } catch (e) {
-          if (!signal.aborted) console.error('Wiki AI: topic build failed:', e);
+          if (!signal.aborted) (e.expected ? console.info : console.error)('Wiki AI: topic build failed:', e.expected ? e.message : e);
           emit({ type: 'topicError', message: signal.aborted ? 'Stopped.' : e.message || String(e) });
         }
       });
