@@ -1251,6 +1251,13 @@ import { topicMap } from './map.js';
     renderTopic();
   }
 
+  // Attaches a passage to the question box and shows it: the box is only on the Chat view.
+  function askAbout(quote) {
+    setQuote(quote);
+    if (state.view !== 'chat') setView('chat');
+    setOpen(true);
+  }
+
   function setBusy(busy) {
     state.busy = busy;
     sendBtn.classList.toggle('stop', busy);
@@ -1619,8 +1626,8 @@ import { topicMap } from './map.js';
   askSelBtn.addEventListener('mousedown', (e) => e.preventDefault()); // keep the selection
   askSelBtn.addEventListener('click', () => {
     askSelBtn.hidden = true;
-    if (pendingSelection) setQuote(pendingSelection);
-    setOpen(true);
+    if (pendingSelection) askAbout(pendingSelection);
+    else setOpen(true);
   });
 
   document.addEventListener('keydown', (e) => {
@@ -1653,8 +1660,7 @@ import { topicMap } from './map.js';
     if (msg.type === 'askSelection') {
       const sel = getSelection();
       const anchor = sel && !sel.isCollapsed ? sel.anchorNode : null;
-      setQuote({ text: msg.text.slice(0, 2000), section: anchor && article.contains(anchor) ? sectionOf(anchor) : '' });
-      setOpen(true);
+      askAbout({ text: msg.text.slice(0, 2000), section: anchor && article.contains(anchor) ? sectionOf(anchor) : '' });
     }
   });
 
