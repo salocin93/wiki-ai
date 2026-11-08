@@ -1,8 +1,10 @@
 // Runs the agent outside the browser: node test/agent-cli.mjs "Article title" "question" [model]
 // Reads LLM_API_KEY, and optionally LLM_BASE_URL (default: Gemini), from the environment. THINKING=1 leaves the model's thinking on.
+// HISTORY=file.json: earlier turns of the chat, as [{role, content}], for follow-up questions.
 import { agent } from '../lib/agent.js';
 import { appSettings } from '../lib/settings.js';
 import { grounding } from '../lib/grounding.js';
+import { readFileSync } from 'node:fs';
 import { pageLinks } from './page-links.mjs';
 
 // Print every source check, including the ones that lead to a retry.
@@ -25,7 +27,7 @@ const answer = await agent.run({
   settings,
   page: { lang, title, links, visibleSection: 'Introduction', selection: null },
   question,
-  history: [],
+  history: process.env.HISTORY ? JSON.parse(readFileSync(process.env.HISTORY, 'utf8')) : [],
   sources,
   emit: (e) => {
     if (e.type === 'status' || e.type === 'step') console.log(`[${ts()}] ${e.type}: ${e.text}`);

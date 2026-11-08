@@ -779,6 +779,35 @@ test('agent: asked earlier to open another article, the number of research round
   assert.deepEqual(offered, [true, true, true, false]);
 });
 
+// Seen live: "Neither this article nor the linked articles I checked mention …" with no article opened, and
+// "the provided articles do not detail …". Both went out as answers without a look elsewhere.
+test('agent: claiming other articles lack it without opening any gets asked to look, Wikipedia search included', async () => {
+  for (const content of ['Neither this article nor the other articles I checked mention who won.', 'The provided articles do not detail who won.']) {
+    const opens = lookup('search_linked_article', { title: 'Battle of Leipzig', query: 'winner' });
+    const { answer, r } = await scriptedRun([{ content }, opens, BACKED], { maxSteps: 3 });
+    assert.equal(answer, BACKED.content, content);
+    assert.ok(r.trace.notes.some((n) => /sent the reader elsewhere/.test(n)), content);
+  }
+  const { lastAsked } = await scriptedRun([{ content: 'Neither this article nor the other articles I checked mention it.' }, BACKED], { maxSteps: 3 });
+  assert.match(lastAsked, /search_wikipedia/);
+});
+
+test('agent: search_wikipedia lists articles with descriptions, marking those this article links to', async () => {
+  const realSearch = wiki.searchArticles;
+  wiki.searchArticles = async () => [{ title: 'Province of Saxony', description: 'Province of Prussia (1816–1944)' }, { title: 'Battle of Leipzig', description: '' }];
+  try {
+    const r = run({ settings: { maxSteps: 6, fallbackModel: '' }, page: { lang: 'en', title: 'T', links: [{ title: 'Battle of Leipzig', anchors: [], context: '', sections: [] }] } });
+    const out = await r.tool('search_wikipedia', { query: 'Prussian Saxony' });
+    assert.match(out, /- Province of Saxony — Province of Prussia \(1816–1944\)\n/);
+    assert.match(out, /- Battle of Leipzig \(linked from this article\)/);
+    assert.ok(!r.usedOther, 'finding titles is not reading another article');
+    wiki.searchArticles = async () => [];
+    assert.match(await r.tool('search_wikipedia', { query: 'zzz' }), /No articles found/);
+  } finally {
+    wiki.searchArticles = realSearch;
+  }
+});
+
 test('agent: a forced answer that is only a tool call is asked for again, and the trace says what it was', async () => {
   const { answer, offered, r } = await scriptedRun([SEARCH, SEARCH, BACKED], { maxSteps: 1 });
   assert.deepEqual(offered, [true, false, false], 'tools stay off for the retry');
