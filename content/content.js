@@ -1342,14 +1342,16 @@ import { topicMap } from './map.js';
   const awaitingFollowups = new Map();
 
   // Saved with the answer, as the chat may be reopened from another page. Links come from the articles this page links
-  // to (without dates, lists and reference plumbing), those read during the chat, and the topic's.
-  function addArticleLinks(c, m, read) {
+  // to (without dates, lists and reference plumbing), those read during the chat, the topic's, and those the answer
+  // names by their exact title.
+  function addArticleLinks(c, m, read, named = []) {
     const links = collectLinks();
     const sizes = linkRank.boxSizes(links);
     const candidates = [
       ...links.filter((l) => linkRank.importance(l, title, null, sizes) > -2).map((l) => ({ title: l.title, lang })),
       ...c.sources.map((s) => ({ title: s.page, lang: s.lang })),
       ...(topicHere()?.pages || []).map((p) => ({ title: p.title, lang: topicHere().lang })),
+      ...named, // articles the answer names by their exact title, checked by the agent
     ];
     m.links = { items: answerLinks.find(m.content, candidates, title), self: title };
     // Articles the model read for this answer but didn't cite: the source list below wouldn't show them.
@@ -1432,7 +1434,7 @@ import { topicMap } from './map.js';
         if (msg.followups?.length) m.followups = msg.followups;
         m.omitted = msg.omitted?.length ? msg.omitted : undefined;
         m.incomplete = !!msg.incomplete || undefined;
-        if (msg.answer) addArticleLinks(c, m, msg.read || []);
+        if (msg.answer) addArticleLinks(c, m, msg.read || [], msg.named || []);
         if (msg.stopped && !m.content) m.error = 'Stopped.';
         announce(m.error || `Answer: ${spoken(m.content)}`);
         finish();

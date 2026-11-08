@@ -1270,3 +1270,10 @@ test('katex fonts: the registered fonts match every @font-face rule in katex.min
   }));
   assert.deepEqual(katexFonts.faces(), rules);
 });
+
+// "Congress of Vienna" in an answer on George V of Hanover wasn't linked: the page doesn't link it and nobody read it.
+test('agent: names in an answer that could be article titles, without sentence openers or citations', () => {
+  const names = agent.answerNames('Following the Congress of Vienna [12], Prussia got land. To the West, East Prussia and Pomerania stayed. The Kingdom of Saxony shrank; envoys met in The Hague.\n<followups>\n- What about the Holy Roman Empire?\n</followups>');
+  for (const n of ['Congress of Vienna', 'East Prussia', 'Kingdom of Saxony', 'The Hague']) assert.ok(names.includes(n), n);
+  for (const n of ['Following the Congress of Vienna', 'To the West', 'The Kingdom of Saxony', 'Holy Roman Empire']) assert.ok(!names.includes(n), n);
+});
