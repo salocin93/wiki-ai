@@ -11,7 +11,7 @@ const shared = readonly([
 const worker = readonly(['importScripts', 'self']);
 const browser = readonly([
   'window', 'document', 'location', 'history', 'navigator', 'getComputedStyle', 'requestAnimationFrame',
-  'cancelAnimationFrame', 'matchMedia', 'CSS', 'Node', 'NodeFilter', 'Element', 'HTMLElement', 'Text', 'Range',
+  'cancelAnimationFrame', 'matchMedia', 'CSS', 'FontFace', 'Node', 'NodeFilter', 'Element', 'HTMLElement', 'Text', 'Range',
   'DOMParser', 'MutationObserver', 'ResizeObserver', 'IntersectionObserver', 'Event', 'CustomEvent',
   'KeyboardEvent', 'confirm', 'alert', 'prompt', 'getSelection', 'sessionStorage', 'Highlight', 'katex',
 ]);

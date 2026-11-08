@@ -8,10 +8,13 @@ import { topics } from '../lib/topics.js';
 // Only the settings page and this extension's own pages may read or clear everything; content scripts (which
 // run inside Wikipedia's pages) get what the sidebar needs. Content scripts can't read extension storage at all
 // (it holds the API key), where the browser supports closing it to them.
+// If that fails, say so: content scripts could then read the key.
+const accessLevelFailed = (e) => console.warn('Wiki AI: could not close extension storage to content scripts', e?.message || e);
 try {
-  chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' })?.catch?.(() => {});
-} catch {
-  // not supported for this storage area in older browsers
+  if (!chrome.storage.local.setAccessLevel) accessLevelFailed('not supported by this browser');
+  else chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(accessLevelFailed);
+} catch (e) {
+  accessLevelFailed(e);
 }
 
 // A content script's sender.url is its web page, so it can't pass for one of the extension's pages.
@@ -121,6 +124,8 @@ chrome.runtime.onConnect.addListener((port) => {
           emit({ type: 'topicBuilt', topic });
         } catch (e) {
           if (!signal.aborted) (e.expected ? console.info : console.error)('Wiki AI: topic build failed:', e.expected ? e.message : e);
+          // A build replaced by a newer one says nothing: its "Stopped." would land on the new build.
+          if (signal.aborted && building?.signal !== signal) return;
           emit({ type: 'topicError', message: signal.aborted ? 'Stopped.' : e.message || String(e) });
         }
       });
@@ -178,11 +183,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         privacyUrl: appSettings.PRIVACY_URL,
         noticeSeen: !!seen,
       })
-    );
+    ).catch((e) => sendResponse({ error: e.message || String(e) }));
     return true;
   }
   if (msg.type === 'privacyNoticeSeen') {
-    storage.set('privacyNoticeSeen', true).then(() => sendResponse({}));
+    storage.set('privacyNoticeSeen', true).then(
+      () => sendResponse({}),
+      (e) => sendResponse({ error: e.message || String(e) })
+    );
     return true;
   }
 });

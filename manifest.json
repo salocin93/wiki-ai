@@ -68,7 +68,8 @@
       ],
       "matches": [
         "https://*.wikipedia.org/*"
-      ]
+      ],
+      "use_dynamic_url": true
     }
   ],
   "options_ui": {

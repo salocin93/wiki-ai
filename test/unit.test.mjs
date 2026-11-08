@@ -1229,3 +1229,15 @@ test('agent: a linked article named like part of this article is not read ahead'
   assert.deepEqual(r.mentionedArticles('How did Van Gogh meet Paul Gauguin?'), ['Paul Gauguin']);
   assert.deepEqual(r.mentionedArticles('What did Theo van Gogh do for him?'), ['Theo van Gogh (art dealer)'], 'a longer name with other words still counts');
 });
+
+test('katex fonts: the registered fonts match every @font-face rule in katex.min.css', async () => {
+  const { katexFonts } = await import('../content/katexfonts.js');
+  const css = readFileSync(new URL('../vendor/katex/katex.min.css', import.meta.url), 'utf8');
+  const rules = [...css.matchAll(/@font-face\{([^}]*)\}/g)].map(([, r]) => ({
+    family: /font-family:([^;]+)/.exec(r)[1].replace(/"/g, ''),
+    style: /font-style:([^;]+)/.exec(r)[1],
+    weight: /font-weight:([^;]+)/.exec(r)[1],
+    file: /url\(fonts\/([^)]+\.woff2)\)/.exec(r)[1],
+  }));
+  assert.deepEqual(katexFonts.faces(), rules);
+});

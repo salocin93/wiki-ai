@@ -1,6 +1,6 @@
 # Wiki AI privacy policy
 
-Last updated: 2026-11-03
+Last updated: 2026-11-08
 
 Wiki AI is a browser extension that answers questions about the Wikipedia article you are reading. This policy explains what data it handles, where that data goes, and how to delete it.
 
@@ -35,7 +35,8 @@ Wiki AI has no analytics, no tracking and no advertising. It doesn't sell or sha
 | Topic clusters you build: article titles, themes, short descriptions | Until you delete them. At most 50; the oldest are removed first |
 | Copies of Wikipedia articles, to avoid downloading them again | 24 hours |
 | Embedding vectors of article sections, if you switch on Semantic search (numbers, not text) | 7 days |
-| Whether the sidebar is open in a tab | Until you close the tab |
+| The last few article links you pressed while the sidebar was open (the link's address and the sidebar's tab), so the sidebar opens again if that article opens in a new tab | 2 minutes |
+| Whether the sidebar is open in a tab, and which of its tabs is showing. This is kept in the Wikipedia page's own session storage, which Wikipedia's scripts can also read; it holds nothing else | Until you close the tab |
 
 This data stays on your device. Wiki AI doesn't sync it to other devices.
 

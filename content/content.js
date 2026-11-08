@@ -1,6 +1,7 @@
 // Sidebar UI on Wikipedia articles: chat, clickable citations, "ask about this" on selected text.
 import { answerLinks } from './answerlinks.js';
 import { linkRank } from '../lib/links.js';
+import { katexFonts } from './katexfonts.js';
 import { markdown } from './markdown.js';
 import { pageDom } from './page.js';
 import { phraseBook } from './phrases.js';
@@ -135,9 +136,8 @@ import { topicMap } from './map.js';
     html.wikiai-open .mw-parser-output table.wikitable { display: block; max-width: 100%; overflow-x: auto; }`;
   document.head.appendChild(pageStyle);
   // KaTeX (270 kB, and 25 kB of CSS) loads the first time an answer has a formula, not on every article; the
-  // messages are then drawn again. Its stylesheet goes in the panel, and in the page too for the fonts: Chrome
-  // ignores @font-face inside a shadow root (the page's copy only touches .katex elements, which Wikipedia doesn't
-  // use). If it can't load, formulas stay as text.
+  // messages are then drawn again. Its stylesheet goes in the panel; its fonts are registered on the page (see
+  // katexfonts.js). If it can't load, formulas stay as text.
   let katexLoading = null;
   const katexCss = (parent) =>
     new Promise((resolve) => {
@@ -152,7 +152,7 @@ import { topicMap } from './map.js';
     katexLoading ||= import(chrome.runtime.getURL('vendor/katex/katex.min.js'))
       .then(() => {
         if (!globalThis.katex) throw new Error('KaTeX did not load');
-        katexCss(document.head);
+        katexFonts.register((path) => chrome.runtime.getURL(path));
         return katexCss(root);
       })
       .then(() => render(true))
@@ -470,7 +470,7 @@ import { topicMap } from './map.js';
   function themesSection(t) {
     const pageRow = (p) => `
       <li class="${p.title === title ? 'here' : ''}">
-        <a href="${wikiUrl(p.title, t.lang)}" title="${esc(p.summary || p.description || '')}">${esc(p.title)}</a>
+        <a href="${esc(wikiUrl(p.title, t.lang))}" title="${esc(p.summary || p.description || '')}">${esc(p.title)}</a>
         ${p.title === title ? '<span class="tag">you are here</span>' : ''}
         ${p.description ? `<span class="desc">${esc(p.description)}</span>` : ''}
         ${p.seed ? '' : `<button class="icon remove-page" data-title="${esc(p.title)}" title="Remove from topic" aria-label="Remove ${esc(p.title)} from topic">×</button>`}
@@ -663,8 +663,11 @@ import { topicMap } from './map.js';
     return /API key|401|403/.test(error) ? ' <button class="link open-settings">Open settings</button>' : '';
   }
 
+  // Chats deleted while still answering: their late answer or follow-ups mustn't save them again.
+  const deletedIds = new Set();
+
   function saveConv(c) {
-    if (!hasAnswer(c)) return;
+    if (!hasAnswer(c) || deletedIds.has(c.id)) return;
     send({ type: 'conv:save', scope: c.scope || state.scope, conv: c }).then(
       () => state.saveError && ((state.saveError = null), renderChatBar()),
       (e) => {
@@ -696,6 +699,7 @@ import { topicMap } from './map.js';
   function deleteChat(id) {
     const c = convById(id);
     if (!c) return;
+    deletedIds.add(id);
     if (state.request === c) state.port?.postMessage({ type: 'stop' });
     state.convs = state.convs.filter((x) => x !== c);
     // Also from the History's list of saved chats, which would otherwise show it again as "saved in another tab".
@@ -1169,7 +1173,7 @@ import { topicMap } from './map.js';
         const first = items[0];
         const pageEl = isHere(first)
           ? `<span class="page-name">${esc(page)}</span><span class="tag">this article</span>`
-          : `<a class="page-name" href="${articleUrl(first)}" target="_blank" rel="noopener noreferrer" title="Open “${esc(page)}”">${esc(page)} ↗</a>`;
+          : `<a class="page-name" href="${esc(articleUrl(first))}" target="_blank" rel="noopener noreferrer" title="Open “${esc(page)}”">${esc(page)} ↗</a>`;
         const where = (s) => s.section.split(' › ').pop();
         // Several passages from one section: tell them apart by their opening words.
         const repeated = (s) => items.filter((x) => where(x) === where(s)).length > 1;
@@ -1309,6 +1313,7 @@ import { topicMap } from './map.js';
         renderTopic();
         renderScopeBar();
         if (state.view === 'map') renderMapView();
+        announce(state.topicError);
       }
       const c = state.request;
       const m = c?.messages[c.messages.length - 1];
@@ -1319,6 +1324,7 @@ import { topicMap } from './map.js';
         setBusy(false);
         renderChatBar();
         render();
+        announce(m.error);
       }
     });
     state.port = port;
@@ -1356,7 +1362,7 @@ import { topicMap } from './map.js';
       const late = awaitingFollowups.get(msg.rid);
       awaitingFollowups.delete(msg.rid);
       // The chat may have been closed or deleted meanwhile.
-      if (!late || !late.c.messages.includes(late.m)) return;
+      if (!late || deletedIds.has(late.c.id) || !late.c.messages.includes(late.m)) return;
       if (msg.followups?.length) late.m.followups = msg.followups;
       if (msg.trace) traces.set(late.m, msg.trace);
       saveConv(late.c);
@@ -1506,7 +1512,7 @@ import { topicMap } from './map.js';
         ${
           isHere(src) && !otherRevision(src)
             ? '<button class="link show-in-page">Show in article</button>'
-            : `<a class="link" href="${linkedUrl(src)}" target="_blank" rel="noopener noreferrer">${isHere(src) ? 'Open the version quoted ↗' : `Open “${textUtil.esc(src.page)}” ↗`}</a>`
+            : `<a class="link" href="${textUtil.esc(linkedUrl(src))}" target="_blank" rel="noopener noreferrer">${isHere(src) ? 'Open the version quoted ↗' : `Open “${textUtil.esc(src.page)}” ↗`}</a>`
         }
       </div>`;
     previewEl.dataset.n = src.n;

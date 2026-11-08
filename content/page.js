@@ -383,6 +383,9 @@ export const pageDom = (() => {
     return range;
   }
 
+  // Readers who turned off animations get an instant jump.
+  const scrollBehavior = () => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
+
   function highlightSource(src) {
     let range = null;
     try {
@@ -395,7 +398,7 @@ export const pageDom = (() => {
       const start = range.startContainer;
       const el = start.nodeType === Node.ELEMENT_NODE ? start.childNodes[range.startOffset] || start : start.parentElement; // a table row, or text
       openCollapsedAncestors(el);
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
       return true;
     }
     // The passage may have changed since it was quoted; the preview says so instead of guessing a place.
@@ -403,7 +406,7 @@ export const pageDom = (() => {
     const h = sectionHeading(src.section);
     if (h) {
       openCollapsedAncestors(h);
-      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      h.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
       return true;
     }
     return false;
@@ -440,12 +443,12 @@ export const pageDom = (() => {
   // Quoted Wikipedia text is CC BY-SA: name the source and the licence wherever it's shown.
   const LICENSE_URL = 'https://creativecommons.org/licenses/by-sa/4.0/';
   const licenseLine = (page, url) =>
-    `<div class="license">Text from <a href="${url}" target="_blank" rel="noopener noreferrer">${textUtil.esc(page ? `Wikipedia: ${page}` : 'Wikipedia')}</a>, <a href="${LICENSE_URL}" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a></div>`;
+    `<div class="license">Text from <a href="${textUtil.esc(url)}" target="_blank" rel="noopener noreferrer">${textUtil.esc(page ? `Wikipedia: ${page}` : 'Wikipedia')}</a>, <a href="${LICENSE_URL}" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a></div>`;
 
   const articleUrl = (src) => textUtil.articleUrl(src.lang, src.page);
 
   // The revision a passage was quoted from, so the link shows the text that was cited.
-  const versionUrl = (src) => (src.revid ? `https://${src.lang}.wikipedia.org/w/index.php?oldid=${src.revid}` : articleUrl(src));
+  const versionUrl = (src) => (/^\d+$/.test(String(src.revid ?? '')) ? `${textUtil.wikiHost(src.lang)}/w/index.php?oldid=${src.revid}` : articleUrl(src));
 
   // A text fragment that finds the passage on the page. Table, infobox and figure passages start with labels
   // the page doesn't show ("Table: …"), so they're found by a cell, a value or the caption instead; prose by

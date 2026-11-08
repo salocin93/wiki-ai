@@ -33,7 +33,7 @@ const shared = {
   bundle: true,
   format: 'iife',
   target: 'chrome116', // manifest.json's minimum_chrome_version
-  sourcemap: release ? false : 'inline',
+  sourcemap: release ? false : 'linked', // separate .map files: Chrome parses the content script on every article
   logLevel: release ? 'warning' : 'info',
 };
 const builds = [
