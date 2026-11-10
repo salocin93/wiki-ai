@@ -1450,10 +1450,6 @@ import { topicMap } from './map.js';
     if (c === conv()) scheduleRender();
   }
 
-  // An earlier answer as the model sees it again: without the sentences the source check couldn't match,
-  // so details from memory don't come back later looking sourced.
-  const withoutUnsupported = (m) => (m.unsupported || []).filter((u) => u.kind !== 'uncited').reduce((text, u) => text.replace(u.text, ''), m.content).replace(/[ \t]+\n/g, '\n');
-
   function ask(question, c = conv()) {
     question = question.trim();
     if (!question || state.busy) return;
@@ -1467,7 +1463,7 @@ import { topicMap } from './map.js';
       ...(c.context || []),
       ...c.messages
         .filter(answered)
-        .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : withoutUnsupported(m) })),
+        .map((m) => ({ role: m.role, content: m.role === 'user' && m.quote ? `About "${m.quote.text.slice(0, 300)}": ${m.content}` : m.content })),
     ];
     const quote = state.quote;
     c.title ||= question;

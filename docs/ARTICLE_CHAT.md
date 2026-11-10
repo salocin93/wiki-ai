@@ -141,11 +141,14 @@ See [the prompt](#the-prompt). It has about 5,600 characters of rules and 10,600
 
 | Part | How it's chosen | Calls |
 |---|---|---|
-| Articles your question names | Up to 3 linked articles named in the question, 5 passages each (`NAMED_PASSAGES`). A title bracketed with a name or year ("Imperial Guard (Russia)") isn't known by its bare name, only by its link text | Fetches each one unless cached |
+| Articles your question names | Up to 3 linked articles named in the question, 5 passages each (`NAMED_PASSAGES`). A title bracketed with a name or year ("Imperial Guard (Russia)") isn't known by its bare name, only by its link text. A capitalised word on its own counts too: the linked article with exactly that title ("Prussia"), else the only one whose name ends in it ("Bismarck" → "Otto von Bismarck"); not on German Wikipedia, where every noun is capitalised | Fetches each one unless cached |
+| Articles it names that this page doesn't link to | Every run of up to five of the question's words is looked up as a title (`Run.namedElsewhere`); the longest names win, up to 2 (`SEARCHED_ARTICLES`), 4 passages each. A single word counts only when it is an article of its own that this article never uses ("photosynthesis", not "life"). Given up on after 2.5 s | 1 (`action=query&titles=…`), plus each article found, without its tables |
 | Passages from this article | Top 6 matches (4 if another article is named), without the intro (`CURRENT_PASSAGES`); keyword matches, or the passages of the best sections with semantic search on | 0 |
 | Links that may help | Top 5 keyword matches, re-ranked by importance | 0 |
 
-The question named no other article, so this added no calls.
+A question that only points back ("And what happened to him afterwards?": a pronoun and at most three other words) is searched together with the question before it (`Run.searchQuery`).
+
+The question named no other article, so this added one call (the title lookup).
 
 **Special cases:**
 - A question about the chat itself, such as "what was my first question?", gets no hints.
@@ -178,12 +181,12 @@ If the model calls tools, each one runs, its result is added to the messages, an
 
 | Tool | What it does | Network calls |
 |---|---|---|
-| `search_article` | Keyword search in this article, top 4 | None |
+| `search_article` | Keyword search in this article, top 6 (`TOOL_PASSAGES`) | None |
 | `read_section` | Reads a whole section | None here; another article needs up to 3 unless cached |
 | `find_linked_articles` | Keyword search over this page's links | None |
-| `search_wikipedia` | Full-text search of all of Wikipedia, for articles this page doesn't link to: top 6 titles with descriptions | 1 (`list=search` as a generator), cached |
+| `search_wikipedia` | Full-text search of all of Wikipedia, for articles this page doesn't link to: top 6 titles with descriptions, and 3 passages from each of the top 2 articles (disambiguation pages skipped), so finding and reading take one round | 1 (`list=search` as a generator), cached, plus the 2 articles without their tables |
 | `linked_article_summary` | Another article's intro, linked or not | 1 (`/api/rest_v1/page/summary/…`), cached |
-| `search_linked_article` | Keyword search in another article, linked or not | Up to 3 unless cached |
+| `search_linked_article` | Keyword search in another article, linked or not, top 6. A title that is no article is replaced by the top hit of a Wikipedia search | Up to 3 unless cached |
 | `recommend_reading` | Ranks articles to read next | 1 per 50 articles checked (at most 2 at a time, not cached), plus up to 9 summaries (cached) |
 
 Only articles the model opens get read, in full and with their tables.
@@ -419,7 +422,7 @@ Rules:
 - Calculations are allowed: ages, differences, totals, and calculations the reader asks for, even when no source shows that exact calculation. Take the formula or facts from the sources (cited), do the arithmetic yourself, show the steps, and make clear it's worked out ("born 1788, died 1824 [2], so he was 36"). Never refuse a calculation only because the sources don't contain its result.
 - Requests for anyone's private details (home address, phone number, email, ID or account numbers) get one sentence saying Wikipedia doesn't publish personal contact details. Don't search for them, and don't open the articles of their family or associates to look.
 - Readers follow their curiosity: a question may drift from this article to a related subject, or build on an earlier answer in this chat (a treaty, a country, a later event). Those are welcome: find and read the articles about them. Only when a question can't be answered from Wikipedia at all (writing code, today's weather, personal matters), don't search: reply in one sentence that you answer questions about Wikipedia's subjects, from its articles. If the articles you read don't say, write "This article doesn't mention …" or, only after opening other articles, "Neither this article nor the other articles I checked mention …". Never mention sources, passages, tools or context in your answer; say "this article" or name the article.
-- Check the article first (search_article, read_section). If it only mentions a person, place, event or concept briefly, or the question is about something it doesn't cover, open that subject's article: find it with find_linked_articles (this article's links) or search_wikipedia (all of Wikipedia), then search it with search_linked_article. You can call several tools at once in one turn, e.g. search two articles side by side; do that rather than one at a time, since the number of turns is limited.
+- Check the article first (search_article, read_section). If it only mentions a person, place, event or concept briefly, or the question is about something it doesn't cover, open that subject's article: find it with find_linked_articles (this article's links) or search_wikipedia (all of Wikipedia, which also shows passages of the top articles), and search it further with search_linked_article. You can call several tools at once in one turn, e.g. search two articles side by side; do that rather than one at a time, since the number of turns is limited.
 - For "what should I read next" questions, use recommend_reading (if its results are already below, use those). Pick 3 to 5 articles that cover different aspects, including at least one from the section the reader is looking at when that group is listed. For each, say in one or two sentences what the reader will learn there and how it connects to this article, citing its introduction and the sentence where this article mentions it. Don't mention link counts, article sizes or other ranking details. Prefer articles that are central to this subject over articles that are merely listed alongside it.
 - When the question is mainly about something other than "{{TITLE}}" (a relative, a place, an event, a concept), always read that subject's own article before answering, even if this article mentions it.
 - Reply with the answer only: don't write out your reasoning, plans or drafts.

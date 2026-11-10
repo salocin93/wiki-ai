@@ -16,7 +16,7 @@ What happens from clicking **Build a topic cluster** to the finished topic: ever
 | 4 | Rank the links | `cluster.rankCandidates` | 0 |
 | 5 | Check the linked articles | `wiki.linkStats` | 15 (#2–16) |
 | 6 | Ask the model for a plan | `cluster.plan` | 1 (#17) |
-| 7 | Run searches the model asked for | `wiki.search` | 1 (#18) |
+| 7 | Run searches the model asked for | `wiki.searchArticles` | 1 (#18) |
 | 8 | Confirm that the titles exist | `wiki.resolveTitles` | 1 (#19) |
 | 9 | Fetch descriptions and intros | `wiki.describeMany` | 3 (#20–22) |
 | 10 | Map links between the articles and mark strong ones | `wiki.linksBetween` | 4 (#23–26) |
@@ -95,7 +95,7 @@ For World War I, 545 of the 714 link back. The prompt got 151 candidates with co
 
 ### 6. Ask the model for a plan: call #17
 
-The full prompt is [below](#the-prompt). If the prompt is over the budget, the user message is cut to fit.
+The full prompt is [below](#the-prompt). The titles-only list holds at most 60 articles (`MAX_EXTRA`). If the prompt is over the budget, the lists are shortened (the titles-only one first), never the instructions after them.
 
 | Setting sent | Value in the log | Comes from |
 |---|---|---|
@@ -130,7 +130,7 @@ The prompt tells the model: "If an important theme has no fitting candidate, add
 
 | Call | Request | Purpose |
 |---|---|---|
-| #18 | `action=query, list=search, srsearch=(the model's query), srlimit=2, srnamespace=0` | Top 2 results for each query |
+| #18 | `action=query, generator=search, gsrsearch=(the model's query), gsrlimit=4, gsrnamespace=0, prop=description` | Top 2 results for each query that aren't a disambiguation page or a list |
 
 At most 5 queries run, one after another. Results join the named theme, and a new theme is created if the name is unknown.
 
@@ -156,7 +156,7 @@ The API returns at most 20 intros per request, so this runs in batches of 20, on
 
 Then two kinds of article are removed, unless the starting article is itself a journal, publisher or university:
 
-- Articles whose description mentions a journal, periodical, magazine, publisher, university or college.
+- Articles whose description calls them a journal, periodical, magazine, publisher, publishing house, university or college (`cluster.isVenue`). Only the words before the first "in", "of", "by" or comma count, and never a person's description, so "Published papers of Albert Einstein in 1905" and "German physicist and university professor (1858–1947)" stay.
 - Articles titled "List of", "Timeline of", "Outline of" or "Index of".
 
 Only the first 280 characters of each intro are saved with the topic.

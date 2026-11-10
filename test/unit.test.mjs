@@ -207,6 +207,12 @@ test('llm: model JSON with fences, stray quotes and trailing commas', () => {
   assert.deepEqual(llm.parseJSON('```json\n{"name": "Die „Neue" Zeit", "pages": [1, 2,],}\n```'), { name: 'Die „Neue" Zeit', pages: [1, 2] });
 });
 
+// The read-ahead asks Wikipedia which names in the question are articles; no test goes to the network for it.
+const noSearch = async () => [];
+wiki.searchArticles = noSearch;
+const noNames = async () => new Map();
+wiki.articlesNamed = noNames;
+
 const run = (extra = {}) =>
   new agent.Run({ settings: { ...appSettings.DEFAULTS, baseUrl: 'https://x/v1', model: 'm', ...extra.settings }, page: { lang: 'en', title: 'T', links: [] }, question: 'q', emit: () => {}, ...extra });
 
@@ -245,6 +251,25 @@ test('agent: follow-ups already asked or already answered are dropped', () => {
   const r = run({ history: [{ role: 'user', content: 'Who was her father?' }, { role: 'assistant', content: 'Her father was Lord Byron.' }] });
   const kept = r.freshFollowups(['Who was her father?', 'Where is she buried beside her father?', 'What did Babbage build?'], 'She is buried beside her father in Hucknall.');
   assert.deepEqual(kept, ['What did Babbage build?']);
+});
+
+test('cluster: a journal, publisher or university is a venue; what was published there and who taught there is not', () => {
+  for (const d of ['Scientific journal', 'German physics journal', 'Public research university in Zürich, Switzerland', 'American academic publisher', 'British publishing house', 'Constituent college of the University of Cambridge']) assert.ok(cluster.isVenue(d), d);
+  for (const d of ['Published papers of Albert Einstein in 1905', 'Papers of Albert Einstein published in the scientific journal Annalen der Physik', '1859 book on evolution by Charles Darwin', 'German physicist and university professor (1858–1947)', 'City in Lower Saxony, Germany', 'Town in Germany known for its university', '', undefined]) assert.ok(!cluster.isVenue(d), String(d));
+});
+
+test('agent: a follow-up is not dropped because the chat as a whole has used its words', () => {
+  const r = run({
+    question: 'Why did the Russian campaign fail?',
+    history: [
+      { role: 'user', content: 'Who was Napoleon?' },
+      { role: 'assistant', content: 'Napoleon Bonaparte was a French general who became Emperor of the French in 1804 [1]. In 1812 he decided to invade Russia [3]. After his defeat he was sent into exile on Elba [4].' },
+      { role: 'user', content: 'What were his major battles?' },
+      { role: 'assistant', content: 'He lost at Leipzig and finally at Waterloo against Britain and Prussia [7].' },
+    ],
+  });
+  const fresh = ['Why did Napoleon invade Russia in 1812?', 'Why did Napoleon lose at Waterloo?', 'What was the Continental System?'];
+  assert.deepEqual(r.freshFollowups([...fresh, 'Where was he sent into exile after his defeat?'], 'The campaign failed for lack of supplies [8].'), fresh, 'only the one a single sentence answers goes');
 });
 
 test('agent: a comparison an earlier answer already made is not suggested again, other comparisons are', () => {
@@ -792,20 +817,123 @@ test('agent: claiming other articles lack it without opening any gets asked to l
   assert.match(lastAsked, /search_wikipedia/);
 });
 
-test('agent: search_wikipedia lists articles with descriptions, marking those this article links to', async () => {
-  const realSearch = wiki.searchArticles;
-  wiki.searchArticles = async () => [{ title: 'Province of Saxony', description: 'Province of Prussia (1816–1944)' }, { title: 'Battle of Leipzig', description: '' }];
+test('agent: search_wikipedia lists the articles found and shows passages of the top ones, in one round', async () => {
+  const realPage = wiki.getIndexedPage;
+  wiki.searchArticles = async () => [
+    { title: 'Saxony (disambiguation)', description: 'Topics referred to by the same term' },
+    { title: 'Province of Saxony', description: 'Province of Prussia (1816–1944)' },
+    { title: 'Battle of Leipzig', description: '' },
+    { title: 'Third article', description: '' },
+  ];
+  const opened = [];
+  wiki.getIndexedPage = async (lang, title, opts) => {
+    opened.push([title, opts.html]);
+    const chunks = [{ lang, page: title, section: 'Introduction', text: `${title} intro.` }, { lang, page: title, section: 'History', text: `${title} history.` }];
+    return { page: { title }, chunks, index: { search: () => [{ doc: chunks[1], score: 1 }] } };
+  };
   try {
     const r = run({ settings: { maxSteps: 6, fallbackModel: '' }, page: { lang: 'en', title: 'T', links: [{ title: 'Battle of Leipzig', anchors: [], context: '', sections: [] }] } });
+    r.current = { page: { title: 'T' } };
     const out = await r.tool('search_wikipedia', { query: 'Prussian Saxony' });
     assert.match(out, /- Province of Saxony — Province of Prussia \(1816–1944\)\n/);
     assert.match(out, /- Battle of Leipzig \(linked from this article\)/);
-    assert.ok(!r.usedOther, 'finding titles is not reading another article');
+    assert.deepEqual(opened, [['Province of Saxony', false], ['Battle of Leipzig', false]], 'the top two, without the disambiguation page or their tables');
+    assert.match(out, /Passages from "Province of Saxony":\n\[1\] .*Introduction\n[\s\S]*\[2\] .*History/);
+    assert.match(out, /Passages from "Battle of Leipzig"/);
+    assert.ok(r.usedOther, 'passages of another article were read');
+    assert.deepEqual([...r.read.keys()], ['Province of Saxony', 'Battle of Leipzig']);
+    // Nothing could be opened: the titles alone, as before.
+    wiki.getIndexedPage = async () => {
+      throw new Error('offline');
+    };
+    const bare = run({ page: { lang: 'en', title: 'T', links: [] } });
+    bare.current = { page: { title: 'T' } };
+    assert.match(await bare.tool('search_wikipedia', { query: 'x' }), /these titles are not sources yet/);
+    assert.ok(!bare.usedOther);
     wiki.searchArticles = async () => [];
     assert.match(await r.tool('search_wikipedia', { query: 'zzz' }), /No articles found/);
   } finally {
-    wiki.searchArticles = realSearch;
+    wiki.searchArticles = noSearch;
+    wiki.getIndexedPage = realPage;
   }
+});
+
+test('agent: search_linked_article with a title that is no article uses the one Wikipedia search finds', async () => {
+  const realPage = wiki.getIndexedPage;
+  const chunk = { lang: 'en', page: 'Congress of Vienna', section: 'Introduction', text: 'The Congress met in 1814.' };
+  wiki.getIndexedPage = async (lang, title) => {
+    if (title !== 'Congress of Vienna') throw new Error(`No Wikipedia article called "${title}"`);
+    return { page: { title }, chunks: [chunk], index: { search: () => [{ doc: chunk, score: 1 }] } };
+  };
+  wiki.searchArticles = async () => [{ title: 'Vienna (disambiguation)', description: 'Wikimedia disambiguation page' }, { title: 'Congress of Vienna', description: '' }];
+  try {
+    const r = run();
+    r.current = { page: { title: 'T' } };
+    const out = await r.tool('search_linked_article', { title: 'Vienna Congress 1815', query: 'decisions' });
+    assert.match(out, /^No article is called "Vienna Congress 1815"; this is from "Congress of Vienna"\.\n\[1\] /);
+    wiki.searchArticles = noSearch;
+    assert.match(await r.tool('search_linked_article', { title: 'Zzz', query: 'x' }), /No Wikipedia article called "Zzz"\. Find its title with search_wikipedia/);
+  } finally {
+    wiki.searchArticles = noSearch;
+    wiki.getIndexedPage = realPage;
+  }
+});
+
+test('agent: a one-word name in the question reads the linked article with that title, or the only one ending in it', () => {
+  const links = ['Prussia', 'Kingdom of Prussia', 'Minister President of Prussia', 'Otto von Bismarck', 'Vienna', 'Hanover', 'Ernest Augustus, King of Hanover', 'Imperial Guard (Russia)'].map((title) => ({ title }));
+  const r = run({ page: { lang: 'en', title: 'George V of Hanover', links } });
+  r.current = { page: { title: 'George V of Hanover' } };
+  assert.deepEqual(r.mentionedArticles('Tell me more about Prussia'), ['Prussia'], 'the exact title, not the others that end in it');
+  assert.deepEqual(r.mentionedArticles('What did Bismarck do next?'), ['Otto von Bismarck']);
+  assert.deepEqual(r.mentionedArticles("What was Bismarck's plan?"), ['Otto von Bismarck']);
+  assert.deepEqual(r.mentionedArticles('What was decided at the Congress of Vienna?'), [], 'Vienna is part of a longer name here');
+  assert.deepEqual(r.mentionedArticles('What happened to Hanover after 1866?'), [], "part of this article's own name");
+  assert.deepEqual(r.mentionedArticles('tell me more about prussia'), [], 'only as a name, with its capital');
+  assert.deepEqual(r.mentionedArticles('Where was the Guard stationed?'), [], 'a title bracketed with a name is not known by one word');
+  assert.deepEqual(r.mentionedArticles('How did the Kingdom of Prussia treat Bismarck?'), ['Kingdom of Prussia', 'Otto von Bismarck']);
+  assert.deepEqual(agent.loneNames('What did Bismarck and Moltke do in Berlin?'), ['Bismarck', 'Moltke', 'Berlin']);
+  const german = run({ page: { lang: 'de', title: 'Georg V. (Hannover)', links: [{ title: 'Krieg' }] } });
+  german.current = { page: { title: 'Georg V. (Hannover)' } };
+  assert.deepEqual(german.mentionedArticles('Was geschah nach dem Krieg?'), [], 'German capitalises every noun');
+});
+
+test('agent: an article the question names in full is read ahead though this page does not link to it', async () => {
+  const r = run({ page: { lang: 'en', title: 'George V of Hanover', links: [] } });
+  r.current = { page: { title: 'George V of Hanover' }, index: { df: new Map([['life', 3], ['afterward', 1], ['george', 9]]) } };
+  const articles = { 'Congress of Vienna': {}, Vienna: {}, Congress: {}, photosynthesis: { title: 'Photosynthesis' }, life: { title: 'Life' }, afterwards: { title: 'Afterwards' }, George: {}, 'coffee trade': { title: 'Coffee trade' }, Leipzig: { title: 'Battle of Leipzig', redirect: true } };
+  let asked = [];
+  wiki.articlesNamed = async (lang, names) => {
+    asked = names;
+    return new Map(names.filter((n) => articles[n]).map((n) => [n, { title: n, redirect: false, ...articles[n] }]));
+  };
+  try {
+    assert.deepEqual(await r.namedElsewhere('What was decided at the Congress of Vienna?', []), ['Congress of Vienna'], 'the longest name, not the words inside it');
+    assert.ok(asked.includes('Congress of Vienna') && !asked.includes('at the Congress'), 'names start and end on a word that says something');
+    assert.deepEqual(await r.namedElsewhere('What was decided at the Congress of Vienna?', ['Congress of Vienna']), [], 'not one already found among the links');
+    assert.deepEqual(await r.namedElsewhere('how does photosynthesis work?', []), ['Photosynthesis'], 'a word this article never uses');
+    assert.deepEqual(await r.namedElsewhere('What were the turning points in his life afterwards?', []), [], 'words the article uses are not names of other articles');
+    assert.deepEqual(await r.namedElsewhere('Who was George of Hanover?', []), [], "this article's own name");
+    assert.deepEqual(await r.namedElsewhere('What happened at Leipzig?', []), [], 'one word that only redirects somewhere');
+    assert.deepEqual(await r.namedElsewhere('how did the coffee trade and photosynthesis and the Congress of Vienna matter?', []).then((x) => x.length), 2, 'two at most');
+    wiki.articlesNamed = () => new Promise(() => {});
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn) => realTimeout(fn, 0);
+    try {
+      assert.deepEqual(await r.namedElsewhere('how does photosynthesis work?', []), [], 'a slow lookup is not waited for');
+    } finally {
+      globalThis.setTimeout = realTimeout;
+    }
+  } finally {
+    wiki.articlesNamed = noNames;
+  }
+});
+
+test('agent: a question that only points back is searched with the question before it', () => {
+  const history = [{ role: 'user', content: 'Who was Otto von Bismarck?' }, { role: 'assistant', content: 'A Prussian statesman [1].' }];
+  assert.match(run({ question: 'And what happened to him afterwards?', history }).searchQuery(), /afterwards\? +Who was Otto von Bismarck\?$/);
+  assert.ok(!/Bismarck/.test(run({ question: 'How did his father raise him in Hanover before the war?', history }).searchQuery()), 'a question with a subject of its own stands alone');
+  assert.ok(!/Bismarck/.test(run({ question: 'When was the Congress of Vienna?', history }).searchQuery()));
+  assert.equal(run({ question: 'What happened to him?' }).searchQuery().trim(), 'What happened to him?', 'nothing before it');
 });
 
 test('agent: a forced answer that is only a tool call is asked for again, and the trace says what it was', async () => {
