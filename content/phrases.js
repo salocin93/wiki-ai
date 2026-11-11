@@ -1,3 +1,5 @@
+import { textUtil } from '../lib/text.js';
+
 // Starter questions and suggestions in the answer language (Settings › Answer language). Languages not listed
 // here get English.
 const PHRASES = {
@@ -383,8 +385,7 @@ function typedQuestions(code, type, title, headings, max = 2) {
 // That the text names it doesn't prove the fact, so a question can still be answered with a correction.
 function factQuestion(code, { title, facts, text, links = [] }) {
   const templates = (TYPED[code] || TYPED.en).facts;
-  const short = (t) => t.replace(/ \([^)]*\)$/, '');
-  const escape = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const { bareTitle: short, escapeRe: escape } = textUtil;
   const known = Object.keys(templates);
   let best = null;
   let most = 0;

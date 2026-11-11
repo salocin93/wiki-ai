@@ -4,8 +4,7 @@ import { textUtil } from '../lib/text.js';
 
 const MAX_LINKS = 8;
 
-const short = (title) => title.replace(/ \([^)]*\)$/, '');
-const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const { bareTitle: short, escapeRe } = textUtil;
 const blank = (m) => ' '.repeat(m.length);
 
 // Where a link must not go: headings, code, citations, formulas already taken out, and mentions of the article itself

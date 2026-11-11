@@ -34,7 +34,6 @@ function inline(text, known, attrs, flags, links) {
   return s.replace(/(\d+)/g, (_, i) => `<span class="unsupported${flags.kinds[i] === 'uncited' ? ' uncited' : ''}" title="${esc(flags.notes[i] || '')}">`).replace(//g, '</span>');
 }
 
-const VALID_LANG = /^[a-z][a-z0-9-]{0,20}$/;
 const withoutMarkers = (t) => t.replace(/[\uE000-\uF8FF]/g, '');
 
 // Formulas: $$…$$ and \[…\] on their own, $…$ and \(…\) inline. An inline $ pair needs no space just inside
@@ -102,7 +101,7 @@ function render(src, known = () => true, attrs, flagged = [], links = null) {
   const math = globalThis.katex ? takeMath(src) : null;
   if (math) src = math.text;
   else if (markdown.onMath && src.search(MATH) >= 0) markdown.onMath(); // KaTeX loads on first use; formulas show as text until then
-  const found = links?.items?.length ? answerLinks.spans(src, links.items.filter((l) => VALID_LANG.test(l.lang || '')), links.self) : [];
+  const found = links?.items?.length ? answerLinks.spans(src, links.items.filter((l) => textUtil.isLang(l.lang)), links.self) : [];
   for (let k = found.length - 1; k >= 0; k--) {
     const { start, end } = found[k];
     src = `${src.slice(0, start)}\uE020${k}\uE021${src.slice(start, end)}\uE022${src.slice(end)}`;

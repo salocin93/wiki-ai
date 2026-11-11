@@ -52,7 +52,9 @@ lib/bm25.js             keyword search over chunks and over links (no embedding 
 lib/embeddings.js       optional semantic search: passage embeddings (Gemini or a local model) fused with BM25;
                         see docs/SEMANTIC_SEARCH.md
 lib/links.js            how central each linked article is (navigation boxes, infobox, introduction …)
-lib/agent.js            tool-calling loop, prompt budget, numbered sources
+lib/agent.js            tool-calling loop, prompt budget, answer checks
+lib/retriever.js        what is read for a question: read-ahead, searches, numbered sources
+lib/async.js            sleep and limited parallelism, shared by the clients
 lib/prompt.js           the agent's system prompt, one entry per rule
 lib/grounding.js        checks each sentence's details against the passages it cites
 lib/llm.js              streaming OpenAI-compatible client (tool calls, <think> handling, 503 fallback)

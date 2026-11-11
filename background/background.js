@@ -3,6 +3,7 @@ import { agent } from '../lib/agent.js';
 import { appSettings } from '../lib/settings.js';
 import { cluster } from '../lib/cluster.js';
 import { storage } from '../lib/storage.js';
+import { textUtil } from '../lib/text.js';
 import { topics } from '../lib/topics.js';
 
 // Only the settings page and this extension's own pages may read or clear everything; content scripts (which
@@ -35,26 +36,25 @@ const SIDEBAR_TYPES = new Set([
 
 // The fields each message must have; anything malformed is dropped before it reaches storage.
 const str = (v, max = 2000) => typeof v === 'string' && v.length <= max;
-const LANG = /^[a-z][a-z0-9-]{0,20}$/;
 function wellFormed(msg) {
   switch (msg.type) {
     case 'conv:list': return str(msg.scope);
     case 'conv:save': return str(msg.scope) && !!msg.conv && str(msg.conv.id, 100) && Array.isArray(msg.conv.messages) && (msg.conv.sources == null || Array.isArray(msg.conv.sources));
     case 'conv:delete': return str(msg.scope) && str(msg.id, 100);
-    case 'topics:forPage': return LANG.test(msg.lang) && str(msg.title, 500);
+    case 'topics:forPage': return textUtil.isLang(msg.lang) && str(msg.title, 500);
     case 'topics:setActive': return (msg.id == null || str(msg.id, 100)) && (msg.close == null || str(msg.close, 100));
     case 'topics:delete': return str(msg.id, 100);
     case 'topics:addPage':
     case 'topics:removePage': return str(msg.id, 100) && str(msg.title, 500);
     case 'handoff:set': return Array.isArray(msg.list) && msg.list.length <= 10;
     case 'article:type': return /^Q\d{1,12}$/.test(msg.qid || '');
-    case 'article:facts': return /^Q\d{1,12}$/.test(msg.qid || '') && LANG.test(msg.lang || '');
+    case 'article:facts': return /^Q\d{1,12}$/.test(msg.qid || '') && textUtil.isLang(msg.lang);
     case 'ask': return str(msg.question, 5000) && Array.isArray(msg.history ?? []) && Array.isArray(msg.sources ?? []) && validPage(msg.page) && (msg.topicId == null || str(msg.topicId, 100)) && (msg.rid == null || Number.isSafeInteger(msg.rid));
     case 'buildTopic': return validPage(msg.page);
     default: return true;
   }
 }
-const validPage = (page) => !!page && LANG.test(page.lang) && str(page.title, 500) && Array.isArray(page.links ?? []);
+const validPage = (page) => !!page && textUtil.isLang(page.lang) && str(page.title, 500) && Array.isArray(page.links ?? []);
 
 async function loadSettings() {
   const settings = await appSettings.load();

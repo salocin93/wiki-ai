@@ -888,13 +888,20 @@ test('agent: a one-word name in the question reads the linked article with that 
   assert.deepEqual(r.mentionedArticles("What was Bismarck's plan?"), ['Otto von Bismarck']);
   assert.deepEqual(r.mentionedArticles('What was decided at the Congress of Vienna?'), [], 'Vienna is part of a longer name here');
   assert.deepEqual(r.mentionedArticles('What happened to Hanover after 1866?'), [], "part of this article's own name");
-  assert.deepEqual(r.mentionedArticles('tell me more about prussia'), [], 'only as a name, with its capital');
+  assert.deepEqual(r.mentionedArticles('what did prussia and bismarck want'), [], 'only as a name, with its capital');
+  assert.deepEqual(r.mentionedArticles('tell me more about prussia'), ['Prussia'], 'unless the question is about nothing else');
+  assert.deepEqual(r.mentionedArticles('What is hanover?'), [], "still not this article's own name");
   assert.deepEqual(r.mentionedArticles('Where was the Guard stationed?'), [], 'a title bracketed with a name is not known by one word');
   assert.deepEqual(r.mentionedArticles('How did the Kingdom of Prussia treat Bismarck?'), ['Kingdom of Prussia', 'Otto von Bismarck']);
   assert.deepEqual(agent.loneNames('What did Bismarck and Moltke do in Berlin?'), ['Bismarck', 'Moltke', 'Berlin']);
-  const german = run({ page: { lang: 'de', title: 'Georg V. (Hannover)', links: [{ title: 'Krieg' }] } });
+  const german = run({ page: { lang: 'de', title: 'Georg V. (Hannover)', links: [{ title: 'Krieg' }, { title: 'Preußen' }] } });
   german.current = { page: { title: 'Georg V. (Hannover)' } };
   assert.deepEqual(german.mentionedArticles('Was geschah nach dem Krieg?'), [], 'German capitalises every noun');
+  assert.deepEqual(german.mentionedArticles('Erzähl mir mehr über Preußen'), ['Preußen'], 'a question about one thing, once the filler words of its language are set aside');
+  const war = run({ page: { lang: 'en', title: 'World War I', links: [{ title: 'Verdun' }, { title: 'Battle of Verdun' }, { title: 'Caffeine' }] } });
+  war.current = { page: { title: 'World War I' } };
+  assert.deepEqual(war.mentionedArticles('What happened at Verdun?'), ['Verdun', 'Battle of Verdun'], 'the place and the one article named after it');
+  assert.deepEqual(war.mentionedArticles('What is caffeine?'), ['Caffeine']);
 });
 
 test('agent: an article the question names in full is read ahead though this page does not link to it', async () => {
@@ -914,6 +921,11 @@ test('agent: an article the question names in full is read ahead though this pag
     assert.deepEqual(await r.namedElsewhere('What were the turning points in his life afterwards?', []), [], 'words the article uses are not names of other articles');
     assert.deepEqual(await r.namedElsewhere('Who was George of Hanover?', []), [], "this article's own name");
     assert.deepEqual(await r.namedElsewhere('What happened at Leipzig?', []), [], 'one word that only redirects somewhere');
+    articles['tea leaves'] = { title: 'Camellia sinensis', redirect: true };
+    articles['royal life'] = { title: 'Royal life' };
+    articles['Wiener Kongress'] = { title: 'Congress of Vienna', redirect: true };
+    assert.deepEqual(await r.namedElsewhere('how are tea leaves processed in royal life?', []), [], 'ordinary words: no redirect, and no word the article uses');
+    assert.deepEqual(await r.namedElsewhere('Was wurde auf dem Wiener Kongress beschlossen?', []), ['Congress of Vienna'], 'a name with its capital may be a redirect');
     assert.deepEqual(await r.namedElsewhere('how did the coffee trade and photosynthesis and the Congress of Vienna matter?', []).then((x) => x.length), 2, 'two at most');
     wiki.articlesNamed = () => new Promise(() => {});
     const realTimeout = globalThis.setTimeout;
@@ -934,6 +946,7 @@ test('agent: a question that only points back is searched with the question befo
   assert.ok(!/Bismarck/.test(run({ question: 'How did his father raise him in Hanover before the war?', history }).searchQuery()), 'a question with a subject of its own stands alone');
   assert.ok(!/Bismarck/.test(run({ question: 'When was the Congress of Vienna?', history }).searchQuery()));
   assert.equal(run({ question: 'What happened to him?' }).searchQuery().trim(), 'What happened to him?', 'nothing before it');
+  assert.equal(run({ question: 'Was geschah danach mit der Stadt?', history, page: { lang: 'de', title: 'T', links: [] } }).previousQuestion(), 'Who was Otto von Bismarck?', "counted without the filler words of the question's language");
 });
 
 test('agent: a forced answer that is only a tool call is asked for again, and the trace says what it was', async () => {
