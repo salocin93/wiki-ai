@@ -141,12 +141,16 @@ See [the prompt](#the-prompt). It has about 5,600 characters of rules and 10,600
 
 | Part | How it's chosen | Calls |
 |---|---|---|
-| Articles your question names | Up to 3 linked articles named in the question, 5 passages each (`NAMED_PASSAGES`). A title bracketed with a name or year ("Imperial Guard (Russia)") isn't known by its bare name, only by its link text. A capitalised word on its own counts too: the linked article with exactly that title ("Prussia"), else the only one whose name ends in it ("Bismarck" → "Otto von Bismarck"); not on German Wikipedia, where every noun is capitalised | Fetches each one unless cached |
-| Articles it names that this page doesn't link to | Every run of up to five of the question's words is looked up as a title (`Run.namedElsewhere`); the longest names win, up to 2 (`SEARCHED_ARTICLES`), 4 passages each. A single word counts only when it is an article of its own that this article never uses ("photosynthesis", not "life"). Given up on after 2.5 s | 1 (`action=query&titles=…`), plus each article found, without its tables |
+| Articles your question names | Up to 3 linked articles named in the question, 5 passages each (`NAMED_PASSAGES`). A title bracketed with a name or year ("Imperial Guard (Russia)") isn't known by its bare name, only by its link text. A capitalised word on its own counts too: the linked article with exactly that title ("Prussia"), and the only one whose name ends in it ("Bismarck" → "Otto von Bismarck"; "Verdun" reads both the town and "Battle of Verdun"); not on German Wikipedia, where every noun is capitalised. A question about one thing only ("What is caffeine?", "Erzähl mir mehr über Preußen") finds the linked article with that name in any language, capital or not. A question that points back is also read for names in the question before it | Fetches each one unless cached |
+| Articles it names that this page doesn't link to | Every run of up to five of the question's words is looked up as a title (`namedElsewhere`); the longest names win, up to 2 (`SEARCHED_ARTICLES`), 4 passages each. A name written with a capital may lead there by a redirect ("Wiener Kongress"); words without one count only as the exact title of an article this article never uses a word of ("photosynthesis", not "life", "chemical energy" or "tea leaves"). In German a name takes two capitalised words, or one and a number. A single word is never followed through a redirect. These don't take any of this article's passages. Given up on after 2.5 s | 1 (`action=query&titles=…`), plus each article found, without its tables |
 | Passages from this article | Top 6 matches (4 if another article is named), without the intro (`CURRENT_PASSAGES`); keyword matches, or the passages of the best sections with semantic search on | 0 |
 | Links that may help | Top 5 keyword matches, re-ranked by importance | 0 |
 
-A question that only points back ("And what happened to him afterwards?": a pronoun and at most three other words) is searched together with the question before it (`Run.searchQuery`).
+A question that only points back ("And what happened to him afterwards?": a pronoun and at most three other words) is searched together with the question before it (`searchQuery`).
+
+All of this is in `lib/retriever.js` (`Retriever`, which `Run` in `lib/agent.js` extends). Keyword search sets aside filler words in English and, by the article's language, in German, French, Spanish and Italian (`lib/bm25.js`); stemming is English only.
+
+`node test/answer-eval.mjs` (or `npm run eval`) checks this on 32 questions: which articles are read ahead, and with `--answers` and a key, which articles real answers cite.
 
 The question named no other article, so this added one call (the title lookup).
 
@@ -177,7 +181,7 @@ The question named no other article, so this added one call (the title lookup).
 
 ### 9. Run any tools the model asks for (not used here)
 
-If the model calls tools, each one runs, its result is added to the messages, and the model is asked again. **Each round is another model call.** On the Gemini API there are at most 4 research rounds, 6 elsewhere. After that the app sends "No more lookups are possible: the tools are gone. Answer now using the sources you have, with citations." and removes the tools. A reply that says the articles don't cover something, before any other article was opened, is asked to look: one more round when a linked article fits the question, two when it has to find one with `search_wikipedia` first.
+If the model calls tools, they run side by side, their results are added to the messages in the order asked, and the model is asked again. **Each round is another model call.** On the Gemini API there are at most 4 research rounds, 6 elsewhere. After that the app sends "No more lookups are possible: the tools are gone. Answer now using the sources you have, with citations." and removes the tools. A reply that says the articles don't cover something, before any other article was opened, is asked to look: one more round when a linked article fits the question, two when it has to find one with `search_wikipedia` first.
 
 | Tool | What it does | Network calls |
 |---|---|---|

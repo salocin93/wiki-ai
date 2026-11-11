@@ -68,7 +68,7 @@ flowchart LR
 2. **Page context** (`content/content.js:183-192`): `pageInfo()` collects every in-article link with its signals (navbox, infobox, hatnote, see-also), up to two context sentences and sections (`collectLinks`, 138-181), the categories, and the section on screen with up to 8 000 characters of its rendered text (`visibleSection`, 63-92). A selection becomes `quote`.
 3. **Send** (`content/content.js:1549-1584`): the history is the chat's answered turns (stopped or failed questions dropped; sentences the source check flagged removed from old answers), plus the chat-wide `sources` array and the active topic id. Posted on the port as `ask`.
 4. **Service worker** (`background/background.js:59-71`): loads settings (throws if no key and provider isn't custom), loads the topic, calls `W.agent.run`.
-5. **Retrieval** (`lib/agent.js:659-683`, `lib/wiki.js:122-209`):
+5. **Retrieval** (`lib/retriever.js`, `hints()`; `lib/wiki.js:122-209`):
    - `getIndexedPage` fetches the article twice in parallel: the plain-text extract (`action=query&prop=extracts&explaintext`) and the HTML (`action=parse`), plus Commons `imageinfo` for its figures. Tables, infoboxes and figures are pulled from the HTML with regexes (`lib/tables.js`). Results are cached in IndexedDB for 24 h.
    - The extract is split on `== Heading ==` into sections (references, external links and similar are dropped, `lib/wiki.js:5-8`), then into ~160-word chunks at sentence boundaries; table rows and figures become extra chunks (`chunkPage`, 55-117). A BM25 index is built over chunks (`lib/bm25.js`) and kept in memory (60 entries).
    - With a topic, all topic articles (extract only, no HTML) are fetched with 6 in parallel and merged into one BM25 corpus (`lib/topics.js:102-124`).

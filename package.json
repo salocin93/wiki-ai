@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -p .",
     "test": "node --test test/unit.test.mjs test/embeddings.test.mjs test/grounding-check.mjs test/tables-check.mjs",
+    "eval": "node test/answer-eval.mjs",
     "package": "scripts/package.sh",
     "package:store": "scripts/package.sh --store"
   },
