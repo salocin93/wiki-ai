@@ -202,7 +202,7 @@ Before you see anything, `grounding.check` compares the answer's details, such a
 | Situation | What happens | Extra model calls |
 |---|---|---|
 | A detail isn't in the sources, or not in the passages cited | Looks for it in the passages shown and the articles already loaded, then asks once to fix it, sending up to 6 passages it found (prompt below). Removes whatever still isn't backed | 1 |
-| That rewrite comes back empty or cut off | Keeps the earlier draft and its follow-ups, without the unbacked sentences | 0 |
+| That rewrite comes back empty or cut off | Keeps the earlier draft and its follow-ups, without the unbacked sentences. A sentence whose details are in another numbered passage than the one it cites stays, with that passage added to its citations | 0 |
 | A table answer | Each row counts as one sentence and the header row isn't checked. A removed row takes its line with it, and a table with no rows left goes whole | 0 |
 | The rewrite opens by announcing a check of the sources (English only) | Drops that first paragraph | 0 |
 | Reply is only reasoning | Asks once more, directly, with thinking low or off and double the tokens | 1 |

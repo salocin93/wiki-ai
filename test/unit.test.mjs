@@ -424,7 +424,7 @@ test('grounding: finds the passages with what a sentence lacks', () => {
   assert.deepEqual(find('At Leipzig and Salamanca [1].', ['Leipzig', 'Salamanca'], 1), [N.intro]);
   assert.deepEqual(find('It came in 1812 [1].', ['1812']), [N.spain], 'numbers too');
   assert.deepEqual(find('The Battle of Hastings came first [1].', ['Hastings']), [], 'a detail in no passage finds nothing');
-  assert.deepEqual(grounding.backing({ text: 'Hastings came first [1].', missing: ['Hastings'] }, [{ text: 'They hastily retreated.' }]), [], 'whole words: "hastily" is no Hastings');
+  assert.deepEqual([...grounding.backing({ text: 'Hastings came first [1].', missing: ['Hastings'] }, [{ text: 'They hastily retreated.' }])], [], 'whole words: "hastily" is no Hastings');
 });
 
 test('agent: a flagged detail is looked up in the topic, read by the model, and only then kept', async () => {
@@ -725,6 +725,42 @@ test('agent: the links with something to say survive the cut in a topic article\
   const list = r.connections('A');
   assert.ok(list.split('\n')[1].includes('A → Strong'), list);
   assert.equal(list.split('\n').length, 15, 'the list stays at 14 links');
+});
+
+test('grounding: backing says which details no passage mentions, and citations are added to a sentence', () => {
+  const pool = [{ n: 1, text: 'Ada was born in 1815.' }, { n: 2, text: 'She married William King in 1835.' }];
+  const found = grounding.backing({ text: 'She married King in 1835 and moved to Paris [1].', missing: ['1835', 'Paris'] }, pool);
+  assert.deepEqual(found.map((p) => p.n), [2]);
+  assert.deepEqual(found.left, ['Paris']);
+  assert.equal(grounding.withCitations('She married in 1835 [1].', [2]), 'She married in 1835 [1][2].');
+  assert.equal(grounding.withCitations('She married in 1835 [1], aged 19 [1, 3].', [2]), 'She married in 1835 [1], aged 19 [1, 3][2].');
+  assert.equal(grounding.withCitations('She married in 1835.', [2, 4]), 'She married in 1835 [2][4].');
+});
+
+test('agent: when the rewrite fails, a sentence that cites the wrong passage stays and gains the right one', async () => {
+  const draft = 'Ada was born in 1815 [1]. She married William King in 1835 [1]. She visited Paris in 1999 [1].';
+  const chunks = [
+    { lang: 'en', page: 'T', section: 'Introduction', text: 'Ada was born in 1815.' },
+    { lang: 'en', page: 'T', section: 'Introduction', text: 'She married William King in 1835.' },
+  ];
+  const realChat = llm.chat;
+  const realPage = wiki.getIndexedPage;
+  wiki.getIndexedPage = async () => ({ page: { title: 'T' }, chunks, index: { search: () => [] } });
+  try {
+    for (const rewrite of [{ content: '' }, { content: 'Ada was born', cutOff: true }]) {
+      const replies = [{ content: draft, raw: draft }, rewrite];
+      let calls = 0;
+      llm.chat = async () => ({ reasoning: '', raw: '', toolCalls: [], model: 'm', ...replies[calls++] });
+      const r = run({ settings: { maxSteps: 6, fallbackModel: '' } });
+      r.emit = () => {};
+      r.page.visibleSection = null;
+      assert.equal(await r.run(), 'Ada was born in 1815 [1]. She married William King in 1835 [1][2].', '1999 and Paris are in no passage: left out');
+      assert.ok(r.trace.notes.some((n) => /^Kept 1 sentence/.test(n)), r.trace.notes.join('\n'));
+    }
+  } finally {
+    llm.chat = realChat;
+    wiki.getIndexedPage = realPage;
+  }
 });
 
 test('agent: a rewrite that comes back empty or cut off keeps the draft, without its unbacked sentences', async () => {
