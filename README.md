@@ -51,6 +51,8 @@ lib/types.js            what kind of subject an article is (person, place, event
 lib/bm25.js             keyword search over chunks and over links (no embedding model needed)
 lib/embeddings.js       optional semantic search: passage embeddings (Gemini or a local model) fused with BM25;
                         see docs/SEMANTIC_SEARCH.md
+lib/decisions.js        optional section ranking: gemini-decision-1 rates each section against the question in one
+                        call (Gemini only); see docs/SECTION_RANKING.md
 lib/links.js            how central each linked article is (navigation boxes, infobox, introduction …)
 lib/agent.js            tool-calling loop, prompt budget, answer checks
 lib/retriever.js        what is read for a question: read-ahead, searches, numbered sources

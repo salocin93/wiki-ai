@@ -57,6 +57,7 @@ function collect() {
   out.fallbackModel = $('fallbackModel').value === OTHER ? settings.fallbackModel : $('fallbackModel').value;
   out.disableThinking = $('disableThinking').checked;
   out.verifyCitations = $('verifyCitations').checked;
+  out.sectionRanking = $('sectionRanking').checked;
   out.semanticSearch = $('semanticSearch').checked;
   out.embedGate = $('embedGate').checked;
   for (const id of EMBED_FIELDS) out[id] = id.endsWith('Prefix') ? $(id).value : $(id).value.trim();
@@ -271,7 +272,7 @@ async function allowEndpoint(baseUrl) {
     return false;
   }
 }
-for (const id of ['disableThinking', 'verifyCitations', 'semanticSearch', 'embedGate', 'embedMinScore', 'embedDailyLimit', ...NUMBER_FIELDS, ...EMBED_FIELDS]) $(id).addEventListener('change', scheduleSave);
+for (const id of ['disableThinking', 'verifyCitations', 'sectionRanking', 'semanticSearch', 'embedGate', 'embedMinScore', 'embedDailyLimit', ...NUMBER_FIELDS, ...EMBED_FIELDS]) $(id).addEventListener('change', scheduleSave);
 
 // One real embedding request with the current fields, so a wrong address, model or key shows up here and not as a
 // silent fall-back to keyword search later.
@@ -361,6 +362,7 @@ $('clearAll').addEventListener('click', async () => {
   $('baseUrl').value = settings.baseUrl || '';
   $('disableThinking').checked = settings.disableThinking;
   $('verifyCitations').checked = settings.verifyCitations;
+  $('sectionRanking').checked = settings.sectionRanking;
   $('semanticSearch').checked = settings.semanticSearch;
   $('embedGate').checked = settings.embedGate;
   for (const id of EMBED_FIELDS) $(id).value = settings[id] || '';

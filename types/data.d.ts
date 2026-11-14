@@ -99,6 +99,7 @@ interface Settings {
   maxSteps: number;
   disableThinking: boolean;
   verifyCitations: boolean;
+  sectionRanking: boolean;
   semanticSearch: boolean;
   embedGate: boolean;
   embedBaseUrl: string;

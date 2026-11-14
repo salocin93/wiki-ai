@@ -100,6 +100,15 @@
     </section>
 
     <section class="card">
+      <h2>Section ranking <span class="hint">experimental</span></h2>
+      <label class="switch">
+        <input type="checkbox" id="sectionRanking">
+        <span class="track" aria-hidden="true"></span>
+        <span><strong>Let Gemini's decision model pick the sections</strong><span class="hint block">For each question, <code>gemini-decision-1</code> rates every section of the article against it in one quick call (under a second, usually), so a section that says the same thing in other words is found. Keyword search then picks the passages inside it. Works with the Google Gemini API only; the question and the opening words of each section are sent to it. Nothing is embedded or stored, and it is free on Gemini's free tier (about 6,000 tokens a question, of 50,000 a minute). When it is too slow, rate limited or the article has too many sections, answers use semantic search if that is on, otherwise keyword search.</span></span>
+      </label>
+    </section>
+
+    <section class="card">
       <h2>Semantic search <span class="hint">experimental</span></h2>
       <label class="switch">
         <input type="checkbox" id="semanticSearch">

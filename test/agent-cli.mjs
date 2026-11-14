@@ -1,5 +1,6 @@
 // Runs the agent outside the browser: node test/agent-cli.mjs "Article title" "question" [model]
 // Reads LLM_API_KEY, and optionally LLM_BASE_URL (default: Gemini), from the environment. THINKING=1 leaves the model's thinking on.
+// SECTION_RANKING=1 switches on section ranking (gemini-decision-1) and prints what retrieval noted.
 // HISTORY=file.json: earlier turns of the chat, as [{role, content}], for follow-up questions.
 import { agent } from '../lib/agent.js';
 import { appSettings } from '../lib/settings.js';
@@ -19,7 +20,7 @@ const lang = process.env.WIKI_LANG || 'en'; // e.g. WIKI_LANG=de for German Wiki
 
 const links = await pageLinks(lang, title);
 
-const settings = { ...appSettings.DEFAULTS, ...(process.env.LLM_BASE_URL ? { baseUrl: process.env.LLM_BASE_URL, fallbackModel: "" } : {}), apiKey: process.env.LLM_API_KEY, ...(model ? { model } : {}), ...(process.env.ANSWER_LANG ? { answerLanguage: process.env.ANSWER_LANG } : {}), ...(process.env.THINKING ? { disableThinking: false } : {}) };
+const settings = { ...appSettings.DEFAULTS, ...(process.env.LLM_BASE_URL ? { baseUrl: process.env.LLM_BASE_URL, fallbackModel: "" } : {}), apiKey: process.env.LLM_API_KEY, ...(model ? { model } : {}), ...(process.env.ANSWER_LANG ? { answerLanguage: process.env.ANSWER_LANG } : {}), ...(process.env.THINKING ? { disableThinking: false } : {}), ...(process.env.SECTION_RANKING ? { sectionRanking: true } : {}) };
 const sources = [];
 const t0 = Date.now();
 const ts = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
@@ -32,6 +33,7 @@ const answer = await agent.run({
   emit: (e) => {
     if (e.type === 'status' || e.type === 'step') console.log(`[${ts()}] ${e.type}: ${e.text}`);
     if (e.type === 'error') console.log('ERROR', e.message);
+    if (e.type === 'trace' && process.env.SECTION_RANKING) for (const note of e.trace?.notes || []) console.log(`[${ts()}] note: ${note}`);
     if (e.type === 'done' && e.named?.length) console.log(`[${ts()}] NAMED ARTICLES (linkable): ${e.named.map((n) => n.title).join('; ')}`);
     if (e.type === 'done') console.log(`[${ts()}] FOLLOW-UPS:\n${(e.followups || []).map((q) => `  - ${q}`).join('\n') || '  (none)'}`);
   },
