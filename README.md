@@ -192,3 +192,7 @@ Then open http://127.0.0.1:8765/test/fixtures/ada.html. With `npm run watch` run
 | [docs/STORE_LISTING.md](docs/STORE_LISTING.md) | Chrome Web Store listing text, dashboard answers and submission steps |
 | [docs/review/REPORT.md](docs/review/REPORT.md) | Final report of the pre-publication review: what was fixed, in which pull request, and what's left |
 | [docs/review/](docs/review/) | The review itself (2026-11-03, of commit `db7f2d6`): code review, security, store readiness, action plan and architecture as they were then |
+
+## License
+
+[MIT](LICENSE). Fork it and keep building. The bundled KaTeX in `vendor/katex/` keeps its own license.

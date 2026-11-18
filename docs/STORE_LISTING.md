@@ -3,8 +3,8 @@
 Text to paste into the developer dashboard, and the steps to submit. Up to date as of 2026-11-03.
 
 ## Before you submit
-1. Fill in `<CONTACT EMAIL>` here and in [PRIVACY.md](../PRIVACY.md).
-2. Make the privacy policy reachable at a public address, and put that address where this page says `<PRIVACY POLICY URL>`. The extension links to `PRIVACY.md` on GitHub (`PRIVACY_URL` in `lib/settings.js`), and the repo is private, so either make it public or host the policy elsewhere and change `PRIVACY_URL`.
+1. The contact in [PRIVACY.md](../PRIVACY.md) is the GitHub issues page. The Chrome Web Store dashboard also asks for a contact email; use one you are happy to show publicly.
+2. Put the privacy policy address where this page says `<PRIVACY POLICY URL>`. The extension links to `PRIVACY.md` on GitHub (`PRIVACY_URL` in `lib/settings.js`), and the repo is public, so that link works.
 3. Make the assets listed under **Assets to prepare**.
 4. Test the release build in Chrome (see [docs/review/REPORT.md](review/REPORT.md), "Still to do").
 5. Bump `version` in `manifest.json` and build the zip (see **Build**).

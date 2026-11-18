@@ -75,6 +75,6 @@ Changes to this policy are published at this address, with a new "Last updated" 
 
 ## Contact
 
-Questions about this policy: <CONTACT EMAIL>, or open an issue at https://github.com/salocin93/wiki-ai.
+Questions about this policy: open an issue at https://github.com/salocin93/wiki-ai/issues.
 
 Wiki AI is an independent project, not affiliated with, endorsed by or sponsored by Wikipedia or the Wikimedia Foundation.

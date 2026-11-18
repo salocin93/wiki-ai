@@ -38,7 +38,7 @@ Status: **Done**, **Partly** (with what's left), or **Open**. "Not tried in Chro
 
 | # | Item | IDs | Status | Notes |
 |---|---|---|---|---|
-| 1 | Privacy policy, Privacy practices tab, provider disclosure in the listing | P-1, Store 1–3 | Partly | Written: [PRIVACY.md](../../PRIVACY.md) and [STORE_LISTING.md](../STORE_LISTING.md). Still to do: fill in `<CONTACT EMAIL>`; make the policy reachable (the extension links to it on GitHub, and the repo is private); fill in the dashboard forms |
+| 1 | Privacy policy, Privacy practices tab, provider disclosure in the listing | P-1, Store 1–3 | Partly | Written: [PRIVACY.md](../../PRIVACY.md) and [STORE_LISTING.md](../STORE_LISTING.md). Still to do: fill in the dashboard forms (the policy is now reachable on GitHub, and its contact is the issues page) |
 | 2 | First-run notice naming the provider, linking the policy | Store 11 | Done | |
 | 3 | `localhost` optional; plain `http:` only for this computer and the local network | M-1, M-2, S-3 | Done | |
 | 4 | Check each sentence against its own cited passages | C-1, C-2 | Done | Reworked in PR #7: unbacked claims are fixed once, then left out (see below) |
@@ -128,8 +128,8 @@ Found while testing the extension, not by the review.
 ## Still to do
 
 **Before submitting to the Chrome Web Store**
-1. Fill in `<CONTACT EMAIL>` in [PRIVACY.md](../../PRIVACY.md) and [STORE_LISTING.md](../STORE_LISTING.md).
-2. Make the privacy policy reachable at a stable public address. Either make the repo public, or host the policy elsewhere and change `PRIVACY_URL` in `lib/settings.js`. Put the same address in the listing.
+1. Check the contact in [PRIVACY.md](../../PRIVACY.md) (the GitHub issues page); the dashboard also asks for a public contact email.
+2. Put the privacy policy address (the repo is public, so the `PRIVACY_URL` link in `lib/settings.js` works) in the listing.
 3. Make the screenshots (1280×800) and the small promo tile (440×280).
 4. Fill in the dashboard: privacy practices, permission justifications, single purpose. The text for each is in [STORE_LISTING.md](../STORE_LISTING.md).
 5. Bump `version` in `manifest.json`, then `npm run package:store`.
