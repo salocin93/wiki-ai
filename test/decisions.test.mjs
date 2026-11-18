@@ -130,9 +130,15 @@ test('a slow reply is given up on', async () => {
   const e = article(PASSAGES);
   decisions.timing.timeoutMs = 30;
   const slow = (url, body, init) => new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)));
-  await withServer(slow, async () => {
-    await assert.rejects(decisions.retrieve(e, 'heavens', [], ON), /no reply within 30 ms/);
-  });
+  // AbortSignal.timeout's timer doesn't keep Node alive, and this fake reply never settles: hold the loop open (Node 22 exits otherwise)
+  const hold = setInterval(() => {}, 1000);
+  try {
+    await withServer(slow, async () => {
+      await assert.rejects(decisions.retrieve(e, 'heavens', [], ON), /no reply within 30 ms/);
+    });
+  } finally {
+    clearInterval(hold);
+  }
 });
 
 test('too many sections for one call, or too many tokens this minute: refused before any request', async () => {
